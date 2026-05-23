@@ -1,8 +1,10 @@
 package com.kosilka.data.device
 
+import com.kosilka.BuildConfig
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.remove
 import androidx.datastore.preferences.core.stringPreferencesKey
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -27,7 +29,39 @@ class TransportModeStore @Inject constructor(
         }
     }
 
+    val serviceEndpointFlow: Flow<String> = dataStore.data.map { preferences ->
+        normalizeEndpoint(preferences[SERVICE_ENDPOINT_KEY])
+            ?: normalizeEndpoint(BuildConfig.MOWER_SERVICE_BASE_URL)
+            ?: DEFAULT_SERVICE_ENDPOINT
+    }
+
+    suspend fun currentServiceEndpoint(): String = serviceEndpointFlow.first()
+
+    suspend fun setServiceEndpoint(endpoint: String) {
+        val normalized = normalizeEndpoint(endpoint)
+            ?: throw IllegalArgumentException("Service endpoint cannot be blank")
+        dataStore.edit { preferences ->
+            preferences[SERVICE_ENDPOINT_KEY] = normalized
+        }
+    }
+
+    suspend fun resetServiceEndpoint() {
+        dataStore.edit { preferences ->
+            preferences.remove(SERVICE_ENDPOINT_KEY)
+        }
+    }
+
+    private fun normalizeEndpoint(raw: String?): String? {
+        val trimmed = raw?.trim().orEmpty()
+        if (trimmed.isBlank()) {
+            return null
+        }
+        return trimmed.trimEnd('/')
+    }
+
     companion object {
         val TRANSPORT_MODE_KEY = stringPreferencesKey("transport_mode")
+        val SERVICE_ENDPOINT_KEY = stringPreferencesKey("service_endpoint")
+        private const val DEFAULT_SERVICE_ENDPOINT = "http://10.0.2.2:8080"
     }
 }

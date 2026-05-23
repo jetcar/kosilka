@@ -1,4 +1,6 @@
 const http = require('http');
+const fs = require('fs');
+const pathModule = require('path');
 const { URL } = require('url');
 
 const PORT = Number(process.env.PORT || 8080);
@@ -21,6 +23,8 @@ const TYPE = {
 const ERR = {
     BUSY: 1006
 };
+
+const UI_INDEX_FILE = pathModule.join(__dirname, 'ui', 'index.html');
 
 const state = {
     connected: false,
@@ -46,6 +50,9 @@ const state = {
     leftoverMm: 0,
     sampleRateHz: 5,
     speedMmPerSec: 200
+    ,
+    tags: [],
+    nextTagId: 1
 };
 
 function nowMs() {
@@ -88,6 +95,45 @@ function sendJson(res, status, payload) {
         'Content-Length': Buffer.byteLength(text)
     });
     res.end(text);
+}
+
+function sendHtml(res, status, html) {
+    res.writeHead(status, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Length': Buffer.byteLength(html)
+    });
+    res.end(html);
+}
+
+function serveUi(res) {
+    try {
+        const html = fs.readFileSync(UI_INDEX_FILE, 'utf8');
+        sendHtml(res, 200, html);
+    } catch (error) {
+        sendJson(res, 500, {
+            error: 'UI load failed',
+            detail: String(error && error.message ? error.message : error)
+        });
+    }
+}
+
+function normalizeTagInput(body) {
+    const name = String(body.name || '').trim();
+    const xMm = Number(body.xMm);
+    const yMm = Number(body.yMm);
+
+    if (!name) {
+        throw new Error('Tag name is required');
+    }
+    if (!Number.isFinite(xMm) || !Number.isFinite(yMm)) {
+        throw new Error('xMm and yMm must be numbers');
+    }
+
+    return {
+        name,
+        xMm: Math.round(xMm),
+        yMm: Math.round(yMm)
+    };
 }
 
 function enqueueMessage(messageType, payload, sessionId = state.sessionId) {
@@ -223,9 +269,91 @@ function startRanging(sampleRateHz) {
     state.rangingTimer = setInterval(() => emitRangingAndCoverageTick(intervalMs), intervalMs);
 }
 
+function parseBooleanQueryValue(rawValue, defaultValue = false) {
+    if (rawValue === null || rawValue === undefined) {
+        return defaultValue;
+    }
+    const normalized = String(rawValue).trim().toLowerCase();
+    if (normalized === '1' || normalized === 'true' || normalized === 'yes') {
+        return true;
+    }
+    if (normalized === '0' || normalized === 'false' || normalized === 'no') {
+        return false;
+    }
+    return defaultValue;
+}
+
+function parsePositiveInt(rawValue, defaultValue, minValue, maxValue) {
+    const parsed = Number(rawValue);
+    if (!Number.isFinite(parsed)) {
+        return defaultValue;
+    }
+    return Math.max(minValue, Math.min(maxValue, Math.floor(parsed)));
+}
+
+function createDebugSnapshot(options = {}) {
+    const includeMessages = Boolean(options.includeMessages);
+    const messageLimit = parsePositiveInt(options.messageLimit, 50, 1, 2000);
+    const messages = includeMessages
+        ? state.messages.slice(Math.max(0, state.messages.length - messageLimit))
+        : [];
+
+    return {
+        serverTimeMs: nowMs(),
+        monotonicSessionTimeMs: monotonicMs(),
+        connected: state.connected,
+        sessionId: state.sessionId,
+        connectedAtMs: state.connectedAtMs,
+        protocolVersion: PROTOCOL_VERSION,
+        transport: {
+            rangingRunning: Boolean(state.rangingTimer),
+            sampleRateHz: state.sampleRateHz,
+            speedMmPerSec: state.speedMmPerSec
+        },
+        scenario: {
+            activeType: currentScenarioType(),
+            rawType: state.scenario.type,
+            untilMs: state.scenario.untilMs,
+            driftRateMmPerSec: state.scenario.driftRateMmPerSec
+        },
+        mower: {
+            position: { ...state.position },
+            path: state.path.map((point) => ({ ...point })),
+            pathIndex: state.pathIndex,
+            sequence: state.sequence,
+            leftoverMm: state.leftoverMm
+        },
+        tags: state.tags.map((tag) => ({ ...tag })),
+        queue: {
+            messageCount: state.messages.length,
+            nextMessageId: state.nextMessageId,
+            includeMessages,
+            messageLimit,
+            messages
+        }
+    };
+}
+
 async function handleRequest(req, res) {
     const url = new URL(req.url, `http://localhost:${PORT}`);
     const path = url.pathname;
+
+    if (req.method === 'GET' && (path === '/' || path === '/ui')) {
+        serveUi(res);
+        return;
+    }
+
+    if (req.method === 'GET' && path === '/health') {
+        sendJson(res, 200, { ok: true });
+        return;
+    }
+
+    if (req.method === 'GET' && path === '/api/v1/debug/memory') {
+        const includeMessages = parseBooleanQueryValue(url.searchParams.get('includeMessages'), false);
+        const messageLimit = parsePositiveInt(url.searchParams.get('messageLimit'), 50, 1, 2000);
+        sendJson(res, 200, createDebugSnapshot({ includeMessages, messageLimit }));
+        return;
+    }
 
     if (req.method === 'POST' && path === '/api/v1/device/connect') {
         state.connected = true;
@@ -290,8 +418,72 @@ async function handleRequest(req, res) {
             activeScenario: currentScenarioType(),
             position: { ...state.position },
             connected: state.connected,
-            sessionId: state.sessionId
+            sessionId: state.sessionId,
+            tags: [...state.tags]
         });
+        return;
+    }
+
+    if (req.method === 'GET' && path === '/api/v1/emulator/tags') {
+        sendJson(res, 200, { tags: [...state.tags] });
+        return;
+    }
+
+    if (req.method === 'POST' && path === '/api/v1/emulator/tags') {
+        const body = await readJson(req);
+        const tagInput = normalizeTagInput(body);
+        const tag = {
+            id: String(body.id || `tag-${state.nextTagId++}`),
+            ...tagInput
+        };
+        state.tags.push(tag);
+        sendJson(res, 200, { ok: true, tag });
+        return;
+    }
+
+    if (req.method === 'DELETE' && path.startsWith('/api/v1/emulator/tags/')) {
+        const tagId = decodeURIComponent(path.replace('/api/v1/emulator/tags/', ''));
+        const before = state.tags.length;
+        state.tags = state.tags.filter((tag) => tag.id !== tagId);
+        sendJson(res, 200, { ok: true, deleted: before - state.tags.length });
+        return;
+    }
+
+    if (req.method === 'PUT' && path.startsWith('/api/v1/emulator/tags/')) {
+        const tagId = decodeURIComponent(path.replace('/api/v1/emulator/tags/', ''));
+        const body = await readJson(req);
+        const xMm = Number(body.xMm);
+        const yMm = Number(body.yMm);
+        if (!Number.isFinite(xMm) || !Number.isFinite(yMm)) {
+            sendJson(res, 400, { error: 'xMm and yMm must be numbers' });
+            return;
+        }
+
+        const tag = state.tags.find((currentTag) => currentTag.id === tagId);
+        if (!tag) {
+            sendJson(res, 404, { error: 'Tag not found' });
+            return;
+        }
+
+        tag.xMm = Math.round(xMm);
+        tag.yMm = Math.round(yMm);
+        sendJson(res, 200, { ok: true, tag: { ...tag } });
+        return;
+    }
+
+    if (req.method === 'PUT' && path === '/api/v1/emulator/mower-position') {
+        const body = await readJson(req);
+        const xMm = Number(body.xMm);
+        const yMm = Number(body.yMm);
+        if (!Number.isFinite(xMm) || !Number.isFinite(yMm)) {
+            sendJson(res, 400, { error: 'xMm and yMm must be numbers' });
+            return;
+        }
+        state.position = {
+            xMm: Math.round(xMm),
+            yMm: Math.round(yMm)
+        };
+        sendJson(res, 200, { ok: true, position: { ...state.position } });
         return;
     }
 

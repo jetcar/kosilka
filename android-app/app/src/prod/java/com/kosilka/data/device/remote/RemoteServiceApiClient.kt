@@ -1,7 +1,7 @@
 package com.kosilka.data.device.remote
 
-import com.kosilka.BuildConfig
 import com.kosilka.core.CoroutineDispatchers
+import com.kosilka.data.device.TransportModeStore
 import java.io.BufferedReader
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
@@ -17,10 +17,10 @@ import kotlinx.serialization.json.jsonPrimitive
 
 @Singleton
 class RemoteServiceApiClient @Inject constructor(
-    private val dispatchers: CoroutineDispatchers
+    private val dispatchers: CoroutineDispatchers,
+    private val transportModeStore: TransportModeStore
 ) {
     private val json = Json { ignoreUnknownKeys = true }
-    private val baseUrl: String = BuildConfig.MOWER_SERVICE_BASE_URL.trimEnd('/')
 
     suspend fun connect(): Result<String?> = runCatching {
         val response = request("POST", "/api/v1/device/connect", null)
@@ -49,6 +49,7 @@ class RemoteServiceApiClient @Inject constructor(
 
     private suspend fun request(method: String, pathAndQuery: String, body: String?): HttpResponse =
         withContext(dispatchers.io) {
+            val baseUrl = transportModeStore.currentServiceEndpoint()
             val connection = (URL(baseUrl + pathAndQuery).openConnection() as HttpURLConnection).apply {
                 requestMethod = method
                 connectTimeout = 5_000

@@ -8,14 +8,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.kosilka.BuildConfig
 import com.kosilka.data.device.TransportMode
 
 @Composable
@@ -23,6 +27,12 @@ fun DebugScreen(
     viewModel: TransportModeDebugViewModel = hiltViewModel()
 ) {
     val mode by viewModel.currentMode.collectAsState()
+    val serviceEndpoint by viewModel.serviceEndpoint.collectAsState()
+    var serviceEndpointInput by remember { mutableStateOf("") }
+
+    LaunchedEffect(serviceEndpoint) {
+        serviceEndpointInput = serviceEndpoint
+    }
 
     Card(
         modifier = Modifier
@@ -48,7 +58,24 @@ fun DebugScreen(
             }
 
             Text("Both modes use the same MowerDevice interface.")
-            Text("Service URL: ${BuildConfig.MOWER_SERVICE_BASE_URL}")
+            OutlinedTextField(
+                value = serviceEndpointInput,
+                onValueChange = { serviceEndpointInput = it },
+                label = { Text("Service Endpoint") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { viewModel.setServiceEndpoint(serviceEndpointInput) }) {
+                    Text("Apply Endpoint")
+                }
+                Button(onClick = { viewModel.resetServiceEndpoint() }) {
+                    Text("Reset Default")
+                }
+            }
+
+            Text("Current service URL: $serviceEndpoint")
         }
     }
 }

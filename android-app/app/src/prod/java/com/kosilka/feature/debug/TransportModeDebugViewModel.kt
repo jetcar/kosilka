@@ -30,4 +30,27 @@ class TransportModeDebugViewModel @Inject constructor(
             transportModeStore.setMode(mode)
         }
     }
+
+    val serviceEndpoint: StateFlow<String> = transportModeStore.serviceEndpointFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = ""
+        )
+
+    fun setServiceEndpoint(endpoint: String) {
+        viewModelScope.launch {
+            val normalized = endpoint.trim().trimEnd('/')
+            if (normalized.isBlank()) {
+                return@launch
+            }
+            transportModeStore.setServiceEndpoint(normalized)
+        }
+    }
+
+    fun resetServiceEndpoint() {
+        viewModelScope.launch {
+            transportModeStore.resetServiceEndpoint()
+        }
+    }
 }

@@ -1,0 +1,816 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mower Emulator Console</title>
+    <style>
+        :root {
+            --bg: #f3f6f9;
+            --panel: #ffffff;
+            --line: #d8e0ea;
+            --text: #0f1f2f;
+            --muted: #51657a;
+            --accent: #1976d2;
+            --danger: #b3261e;
+            --tag: #2e7d32;
+            --mower: #e65100;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: "Segoe UI", Tahoma, sans-serif;
+            background: radial-gradient(circle at top left, #f8fbff, var(--bg));
+            color: var(--text);
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: 340px 1fr;
+            gap: 16px;
+            padding: 16px;
+            min-height: 100vh;
+        }
+
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 14px;
+            box-shadow: 0 8px 22px rgba(15, 31, 47, 0.06);
+        }
+
+        h1 {
+            margin: 0 0 8px;
+            font-size: 22px;
+        }
+
+        h2 {
+            margin: 0 0 10px;
+            font-size: 16px;
+        }
+
+        .muted {
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .stack {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .row {
+            display: flex;
+            gap: 8px;
+        }
+
+        .row>* {
+            flex: 1;
+        }
+
+        label {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            font-size: 13px;
+        }
+
+        input {
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 8px;
+            font-size: 14px;
+            width: 100%;
+        }
+
+        button {
+            border: 1px solid var(--accent);
+            background: var(--accent);
+            color: white;
+            border-radius: 8px;
+            padding: 8px 10px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        button.ghost {
+            background: transparent;
+            color: var(--accent);
+        }
+
+        button.danger {
+            border-color: var(--danger);
+            background: var(--danger);
+        }
+
+        #map {
+            width: 100%;
+            max-width: 100%;
+            height: 74vh;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            background: linear-gradient(#fcfdff, #f4f7fb);
+            display: block;
+        }
+
+        .tag-list {
+            max-height: 200px;
+            overflow: auto;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 8px;
+            background: #fcfdff;
+        }
+
+        .tag-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px dashed var(--line);
+            padding: 6px 0;
+            gap: 8px;
+            font-size: 13px;
+        }
+
+        .tag-item:last-child {
+            border-bottom: none;
+        }
+
+        @media (max-width: 1000px) {
+            .layout {
+                grid-template-columns: 1fr;
+            }
+
+            #map {
+                height: 52vh;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="layout">
+        <section class="panel stack">
+            <div>
+                <h1>Emulator Console</h1>
+                <div class="muted">Manage tags and inspect mower position in real time.</div>
+            </div>
+
+            <div class="panel">
+                <h2>Status</h2>
+                <div id="statusLine" class="muted">Loading...</div>
+                <div id="positionLine" class="muted">Position: -</div>
+            </div>
+
+            <div class="panel stack">
+                <h2>Add Tag</h2>
+                <label>
+                    Tag Name
+                    <input id="tagName" placeholder="Anchor A" />
+                </label>
+                <div class="row">
+                    <label>
+                        X (mm)
+                        <input id="tagX" type="number" value="500" />
+                    </label>
+                    <label>
+                        Y (mm)
+                        <input id="tagY" type="number" value="500" />
+                    </label>
+                </div>
+                <div class="row">
+                    <button id="addTagBtn">Add Tag</button>
+                    <button id="clearTagsBtn" class="danger">Clear All</button>
+                </div>
+                <div class="muted">Tip: click map to fill X/Y quickly.</div>
+            </div>
+
+            <div class="panel stack">
+                <h2>Set Mower Position</h2>
+                <div class="row">
+                    <label>
+                        X (mm)
+                        <input id="mowerX" type="number" value="0" />
+                    </label>
+                    <label>
+                        Y (mm)
+                        <input id="mowerY" type="number" value="0" />
+                    </label>
+                </div>
+                <button id="setMowerBtn" class="ghost">Apply Position</button>
+            </div>
+
+            <div class="panel stack">
+                <h2>Tags</h2>
+                <div id="tagList" class="tag-list"></div>
+            </div>
+        </section>
+
+        <section class="panel">
+            <canvas id="map" width="1200" height="800"></canvas>
+        </section>
+    </div>
+
+    <script>
+        const mapCanvas = document.getElementById('map');
+        const mapCtx = mapCanvas.getContext('2d');
+
+        const statusLine = document.getElementById('statusLine');
+        const positionLine = document.getElementById('positionLine');
+        const tagList = document.getElementById('tagList');
+
+        const tagName = document.getElementById('tagName');
+        const tagX = document.getElementById('tagX');
+        const tagY = document.getElementById('tagY');
+        const addTagBtn = document.getElementById('addTagBtn');
+        const clearTagsBtn = document.getElementById('clearTagsBtn');
+
+        const mowerX = document.getElementById('mowerX');
+        const mowerY = document.getElementById('mowerY');
+        const setMowerBtn = document.getElementById('setMowerBtn');
+
+        const world = {
+            minX: 0,
+            minY: 0,
+            maxX: 6000,
+            maxY: 4500
+        };
+
+        let latestState = {
+            activeScenario: 'NORMAL',
+            connected: false,
+            position: { xMm: 0, yMm: 0 }
+        };
+
+        let tags = [];
+        let draggingTagId = null;
+        let isDraggingTag = false;
+        let isDraggingMower = false;
+        let dragMoved = false;
+        let mowerDragMoved = false;
+
+        function mapToScreen(point) {
+            const padding = 40;
+            const width = mapCanvas.width - padding * 2;
+            const height = mapCanvas.height - padding * 2;
+            const x = padding + ((point.xMm - world.minX) / (world.maxX - world.minX)) * width;
+            const y = mapCanvas.height - padding - ((point.yMm - world.minY) / (world.maxY - world.minY)) * height;
+            return { x, y };
+        }
+
+        function screenToMap(screenX, screenY) {
+            const rect = mapCanvas.getBoundingClientRect();
+            const px = (screenX - rect.left) * (mapCanvas.width / rect.width);
+            const py = (screenY - rect.top) * (mapCanvas.height / rect.height);
+
+            const padding = 40;
+            const width = mapCanvas.width - padding * 2;
+            const height = mapCanvas.height - padding * 2;
+
+            const xNorm = Math.max(0, Math.min(1, (px - padding) / width));
+            const yNorm = Math.max(0, Math.min(1, (mapCanvas.height - padding - py) / height));
+
+            return {
+                xMm: Math.round(world.minX + xNorm * (world.maxX - world.minX)),
+                yMm: Math.round(world.minY + yNorm * (world.maxY - world.minY))
+            };
+        }
+
+        function clampToWorld(point) {
+            return {
+                xMm: Math.max(world.minX, Math.min(world.maxX, Math.round(point.xMm))),
+                yMm: Math.max(world.minY, Math.min(world.maxY, Math.round(point.yMm)))
+            };
+        }
+
+        function getCanvasPointFromEvent(event) {
+            if (event.touches && event.touches.length > 0) {
+                return { clientX: event.touches[0].clientX, clientY: event.touches[0].clientY };
+            }
+            if (event.changedTouches && event.changedTouches.length > 0) {
+                return { clientX: event.changedTouches[0].clientX, clientY: event.changedTouches[0].clientY };
+            }
+            return { clientX: event.clientX, clientY: event.clientY };
+        }
+
+        function findTagNearPoint(point, thresholdPx) {
+            for (const tag of tags) {
+                const screen = mapToScreen(tag);
+                const dx = point.x - screen.x;
+                const dy = point.y - screen.y;
+                if (Math.hypot(dx, dy) <= thresholdPx) {
+                    return tag;
+                }
+            }
+            return null;
+        }
+
+        function findMowerNearPoint(point, thresholdPx) {
+            const mower = latestState.position || { xMm: 0, yMm: 0 };
+            const screen = mapToScreen(mower);
+            const dx = point.x - screen.x;
+            const dy = point.y - screen.y;
+            return Math.hypot(dx, dy) <= thresholdPx;
+        }
+
+        function moveDraggedTag(clientX, clientY) {
+            if (!draggingTagId) {
+                return;
+            }
+
+            const point = screenToMap(clientX, clientY);
+            const clamped = clampToWorld(point);
+            const tag = tags.find((currentTag) => currentTag.id === draggingTagId);
+            if (!tag) {
+                return;
+            }
+
+            if (tag.xMm !== clamped.xMm || tag.yMm !== clamped.yMm) {
+                dragMoved = true;
+            }
+
+            tag.xMm = clamped.xMm;
+            tag.yMm = clamped.yMm;
+            tagX.value = clamped.xMm;
+            tagY.value = clamped.yMm;
+            renderMap();
+            renderTagList();
+        }
+
+        async function persistDraggedTagPosition() {
+            if (!draggingTagId || !dragMoved) {
+                return;
+            }
+            const tag = tags.find((currentTag) => currentTag.id === draggingTagId);
+            if (!tag) {
+                return;
+            }
+
+            const response = await fetch(`/api/v1/emulator/tags/${encodeURIComponent(tag.id)}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ xMm: tag.xMm, yMm: tag.yMm })
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to persist tag position');
+            }
+        }
+
+        function moveDraggedMower(clientX, clientY) {
+            if (!isDraggingMower) {
+                return;
+            }
+
+            const point = screenToMap(clientX, clientY);
+            const clamped = clampToWorld(point);
+            const previous = latestState.position || { xMm: 0, yMm: 0 };
+            if (previous.xMm !== clamped.xMm || previous.yMm !== clamped.yMm) {
+                mowerDragMoved = true;
+            }
+
+            latestState.position = clamped;
+            mowerX.value = clamped.xMm;
+            mowerY.value = clamped.yMm;
+            positionLine.textContent = `Position: x=${clamped.xMm} mm, y=${clamped.yMm} mm`;
+            renderMap();
+        }
+
+        async function persistDraggedMowerPosition() {
+            if (!mowerDragMoved || !latestState.position) {
+                return;
+            }
+
+            const response = await fetch('/api/v1/emulator/mower-position', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    xMm: latestState.position.xMm,
+                    yMm: latestState.position.yMm
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to persist mower position');
+            }
+        }
+
+        function drawGrid() {
+            mapCtx.clearRect(0, 0, mapCanvas.width, mapCanvas.height);
+
+            mapCtx.fillStyle = '#f8fbff';
+            mapCtx.fillRect(0, 0, mapCanvas.width, mapCanvas.height);
+
+            mapCtx.strokeStyle = '#e1e8f0';
+            mapCtx.lineWidth = 1;
+
+            for (let x = 0; x <= 6000; x += 500) {
+                const p0 = mapToScreen({ xMm: x, yMm: 0 });
+                const p1 = mapToScreen({ xMm: x, yMm: 4500 });
+                mapCtx.beginPath();
+                mapCtx.moveTo(p0.x, p0.y);
+                mapCtx.lineTo(p1.x, p1.y);
+                mapCtx.stroke();
+            }
+
+            for (let y = 0; y <= 4500; y += 500) {
+                const p0 = mapToScreen({ xMm: 0, yMm: y });
+                const p1 = mapToScreen({ xMm: 6000, yMm: y });
+                mapCtx.beginPath();
+                mapCtx.moveTo(p0.x, p0.y);
+                mapCtx.lineTo(p1.x, p1.y);
+                mapCtx.stroke();
+            }
+        }
+
+        function drawTags() {
+            mapCtx.strokeStyle = '#1b5e20';
+            mapCtx.font = '13px Segoe UI';
+
+            for (const tag of tags) {
+                const p = mapToScreen(tag);
+                const isActive = tag.id === draggingTagId;
+
+                mapCtx.beginPath();
+                mapCtx.arc(p.x, p.y, 8, 0, Math.PI * 2);
+                mapCtx.fillStyle = isActive ? '#145a32' : '#2e7d32';
+                mapCtx.fill();
+
+                if (isActive) {
+                    mapCtx.beginPath();
+                    mapCtx.strokeStyle = '#0d3d21';
+                    mapCtx.lineWidth = 2;
+                    mapCtx.arc(p.x, p.y, 12, 0, Math.PI * 2);
+                    mapCtx.stroke();
+                }
+
+                mapCtx.fillStyle = '#1b5e20';
+                mapCtx.fillText(`${tag.name} (${tag.xMm}, ${tag.yMm})`, p.x + 10, p.y - 10);
+            }
+
+            mapCtx.lineWidth = 1;
+        }
+
+        function drawMower() {
+            const p = mapToScreen(latestState.position || { xMm: 0, yMm: 0 });
+            const isActive = isDraggingMower;
+
+            mapCtx.beginPath();
+            mapCtx.fillStyle = isActive ? '#bf360c' : '#e65100';
+            mapCtx.arc(p.x, p.y, 11, 0, Math.PI * 2);
+            mapCtx.fill();
+
+            mapCtx.strokeStyle = isActive ? '#7f2704' : '#bf360c';
+            mapCtx.lineWidth = 2;
+            mapCtx.beginPath();
+            mapCtx.arc(p.x, p.y, 16, 0, Math.PI * 2);
+            mapCtx.stroke();
+
+            if (isActive) {
+                mapCtx.beginPath();
+                mapCtx.strokeStyle = '#7f2704';
+                mapCtx.lineWidth = 2;
+                mapCtx.arc(p.x, p.y, 21, 0, Math.PI * 2);
+                mapCtx.stroke();
+            }
+
+            mapCtx.fillStyle = '#bf360c';
+            mapCtx.font = 'bold 13px Segoe UI';
+            mapCtx.fillText('Mower', p.x + 12, p.y + 4);
+
+            mapCtx.lineWidth = 1;
+        }
+
+        function renderMap() {
+            drawGrid();
+            drawTags();
+            drawMower();
+        }
+
+        async function fetchState() {
+            const response = await fetch('/api/v1/emulator/state');
+            if (!response.ok) throw new Error('Failed to load state');
+            const serverState = await response.json();
+            if (isDraggingMower) {
+                latestState = {
+                    ...serverState,
+                    position: latestState.position || serverState.position
+                };
+            } else {
+                latestState = serverState;
+            }
+            statusLine.textContent = `Connected: ${latestState.connected} | Scenario: ${latestState.activeScenario}`;
+            positionLine.textContent = `Position: x=${latestState.position.xMm} mm, y=${latestState.position.yMm} mm`;
+            mowerX.value = latestState.position.xMm;
+            mowerY.value = latestState.position.yMm;
+            renderMap();
+        }
+
+        async function fetchTags() {
+            const response = await fetch('/api/v1/emulator/tags');
+            if (!response.ok) throw new Error('Failed to load tags');
+            const payload = await response.json();
+            tags = payload.tags || [];
+            renderTagList();
+            renderMap();
+        }
+
+        function renderTagList() {
+            tagList.innerHTML = '';
+
+            if (!tags.length) {
+                const empty = document.createElement('div');
+                empty.className = 'muted';
+                empty.textContent = 'No tags yet.';
+                tagList.appendChild(empty);
+                return;
+            }
+
+            for (const tag of tags) {
+                const row = document.createElement('div');
+                row.className = 'tag-item';
+
+                const text = document.createElement('div');
+                text.textContent = `${tag.name}: (${tag.xMm}, ${tag.yMm})`;
+
+                const removeBtn = document.createElement('button');
+                removeBtn.className = 'danger';
+                removeBtn.textContent = 'Delete';
+                removeBtn.addEventListener('click', async () => {
+                    await fetch(`/api/v1/emulator/tags/${encodeURIComponent(tag.id)}`, { method: 'DELETE' });
+                    await refresh();
+                });
+
+                row.appendChild(text);
+                row.appendChild(removeBtn);
+                tagList.appendChild(row);
+            }
+        }
+
+        async function addTag() {
+            const payload = {
+                name: tagName.value.trim(),
+                xMm: Number(tagX.value),
+                yMm: Number(tagY.value)
+            };
+
+            if (!payload.name) {
+                alert('Tag name is required');
+                return;
+            }
+
+            const response = await fetch('/api/v1/emulator/tags', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                const error = await response.json().catch(() => ({}));
+                alert(error.error || error.detail || 'Failed to add tag');
+                return;
+            }
+
+            tagName.value = '';
+            await refresh();
+        }
+
+        async function clearTags() {
+            for (const tag of [...tags]) {
+                await fetch(`/api/v1/emulator/tags/${encodeURIComponent(tag.id)}`, { method: 'DELETE' });
+            }
+            await refresh();
+        }
+
+        async function setMowerPosition() {
+            const payload = {
+                xMm: Number(mowerX.value),
+                yMm: Number(mowerY.value)
+            };
+            const response = await fetch('/api/v1/emulator/mower-position', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!response.ok) {
+                alert('Failed to update mower position');
+            }
+            await fetchState();
+        }
+
+        async function refresh() {
+            await Promise.all([fetchState(), fetchTags()]);
+        }
+
+        mapCanvas.addEventListener('mousedown', (event) => {
+            const raw = getCanvasPointFromEvent(event);
+            const mapPoint = screenToMap(raw.clientX, raw.clientY);
+            const screenPoint = mapToScreen(mapPoint);
+            const hitTag = findTagNearPoint(screenPoint, 16);
+            if (hitTag) {
+                draggingTagId = hitTag.id;
+                isDraggingTag = true;
+                dragMoved = false;
+                mapCanvas.style.cursor = 'grabbing';
+                moveDraggedTag(raw.clientX, raw.clientY);
+                return;
+            }
+
+            const hitMower = findMowerNearPoint(screenPoint, 20);
+            if (!hitMower) {
+                return;
+            }
+
+            isDraggingMower = true;
+            mowerDragMoved = false;
+            mapCanvas.style.cursor = 'grabbing';
+            moveDraggedMower(raw.clientX, raw.clientY);
+        });
+
+        mapCanvas.addEventListener('mousemove', (event) => {
+            const raw = getCanvasPointFromEvent(event);
+            if (isDraggingTag) {
+                moveDraggedTag(raw.clientX, raw.clientY);
+                return;
+            }
+            if (isDraggingMower) {
+                moveDraggedMower(raw.clientX, raw.clientY);
+                return;
+            }
+
+            const mapPoint = screenToMap(raw.clientX, raw.clientY);
+            const screenPoint = mapToScreen(mapPoint);
+            if (findTagNearPoint(screenPoint, 16) || findMowerNearPoint(screenPoint, 20)) {
+                mapCanvas.style.cursor = 'grab';
+                return;
+            }
+            mapCanvas.style.cursor = 'crosshair';
+        });
+
+        mapCanvas.addEventListener('mouseleave', async () => {
+            if (isDraggingTag) {
+                isDraggingTag = false;
+                mapCanvas.style.cursor = 'crosshair';
+                try {
+                    await persistDraggedTagPosition();
+                } catch (error) {
+                    alert(error.message);
+                } finally {
+                    draggingTagId = null;
+                    dragMoved = false;
+                    renderTagList();
+                }
+                return;
+            }
+
+            if (!isDraggingMower) {
+                return;
+            }
+
+            isDraggingMower = false;
+            mapCanvas.style.cursor = 'crosshair';
+            try {
+                await persistDraggedMowerPosition();
+            } catch (error) {
+                alert(error.message);
+            } finally {
+                mowerDragMoved = false;
+                renderMap();
+            }
+        });
+
+        mapCanvas.addEventListener('mouseup', async (event) => {
+            const raw = getCanvasPointFromEvent(event);
+            const mapPoint = screenToMap(raw.clientX, raw.clientY);
+
+            if (isDraggingTag) {
+                isDraggingTag = false;
+                mapCanvas.style.cursor = 'crosshair';
+                try {
+                    await persistDraggedTagPosition();
+                } catch (error) {
+                    alert(error.message);
+                } finally {
+                    draggingTagId = null;
+                    dragMoved = false;
+                    renderTagList();
+                }
+                return;
+            }
+
+            if (isDraggingMower) {
+                isDraggingMower = false;
+                mapCanvas.style.cursor = 'crosshair';
+                try {
+                    await persistDraggedMowerPosition();
+                } catch (error) {
+                    alert(error.message);
+                } finally {
+                    mowerDragMoved = false;
+                    renderMap();
+                }
+                return;
+            }
+
+            tagX.value = mapPoint.xMm;
+            tagY.value = mapPoint.yMm;
+            mowerX.value = mapPoint.xMm;
+            mowerY.value = mapPoint.yMm;
+        });
+
+        mapCanvas.addEventListener('touchstart', (event) => {
+            const raw = getCanvasPointFromEvent(event);
+            const mapPoint = screenToMap(raw.clientX, raw.clientY);
+            const screenPoint = mapToScreen(mapPoint);
+            const hitTag = findTagNearPoint(screenPoint, 18);
+            if (hitTag) {
+                event.preventDefault();
+                draggingTagId = hitTag.id;
+                isDraggingTag = true;
+                dragMoved = false;
+                moveDraggedTag(raw.clientX, raw.clientY);
+                return;
+            }
+
+            const hitMower = findMowerNearPoint(screenPoint, 22);
+            if (!hitMower) {
+                return;
+            }
+
+            event.preventDefault();
+            isDraggingMower = true;
+            mowerDragMoved = false;
+            moveDraggedMower(raw.clientX, raw.clientY);
+        }, { passive: false });
+
+        mapCanvas.addEventListener('touchmove', (event) => {
+            if (isDraggingTag) {
+                event.preventDefault();
+                const raw = getCanvasPointFromEvent(event);
+                moveDraggedTag(raw.clientX, raw.clientY);
+                return;
+            }
+
+            if (!isDraggingMower) {
+                return;
+            }
+
+            event.preventDefault();
+            const raw = getCanvasPointFromEvent(event);
+            moveDraggedMower(raw.clientX, raw.clientY);
+        }, { passive: false });
+
+        mapCanvas.addEventListener('touchend', async () => {
+            if (isDraggingTag) {
+                isDraggingTag = false;
+                try {
+                    await persistDraggedTagPosition();
+                } catch (error) {
+                    alert(error.message);
+                } finally {
+                    draggingTagId = null;
+                    dragMoved = false;
+                    renderTagList();
+                }
+                return;
+            }
+
+            if (!isDraggingMower) {
+                return;
+            }
+
+            isDraggingMower = false;
+            try {
+                await persistDraggedMowerPosition();
+            } catch (error) {
+                alert(error.message);
+            } finally {
+                mowerDragMoved = false;
+                renderMap();
+            }
+        });
+
+        addTagBtn.addEventListener('click', () => addTag().catch((error) => alert(error.message)));
+        clearTagsBtn.addEventListener('click', () => clearTags().catch((error) => alert(error.message)));
+        setMowerBtn.addEventListener('click', () => setMowerPosition().catch((error) => alert(error.message)));
+
+        refresh().catch((error) => {
+            statusLine.textContent = `Failed to load: ${error.message}`;
+        });
+
+        setInterval(() => {
+            refresh().catch(() => {
+                statusLine.textContent = 'Connection lost. Retrying...';
+            });
+        }, 700);
+    </script>
+</body>
+
+</html>
