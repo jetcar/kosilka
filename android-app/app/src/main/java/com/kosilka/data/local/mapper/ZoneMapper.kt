@@ -13,17 +13,19 @@ private data class VertexJson(val xMm: Int, val yMm: Int)
 private val json = Json { ignoreUnknownKeys = true }
 
 fun ZoneEntity.toDomain(): Zone {
-    val vertices = json.decodeFromString(
+    val decodedVertices: List<VertexJson> = json.decodeFromString(
         ListSerializer(VertexJson.serializer()),
         verticesJson
-    ).map { Point2dMm(it.xMm, it.yMm) }
+    )
+    val vertices = decodedVertices.map { Point2dMm(it.xMm, it.yMm) }
     return Zone(id = id, vertices = vertices)
 }
 
 fun Zone.toEntity(): ZoneEntity {
+    val encodedVertices: List<VertexJson> = vertices.map { VertexJson(it.xMm, it.yMm) }
     val verticesJson = json.encodeToString(
         ListSerializer(VertexJson.serializer()),
-        vertices.map { VertexJson(it.xMm, it.yMm) }
+        encodedVertices
     )
     return ZoneEntity(id = id, verticesJson = verticesJson)
 }

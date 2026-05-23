@@ -79,23 +79,23 @@ The emulator is built **first** so development and testing can proceed without a
     - Scenarios: `Normal`, `Drift(driftRateMmPerSec)`, `Stuck(durationMs)`, `SignalInterference(durationMs)`, `SignalLoss(durationMs)`, `Busy(durationMs)`
     - _Requirements: Emulator Architecture_
 
-  - [ ]* 5.2 Write property test for `EmulatorScenarioEngine` — Property 24: Emulator Normal Path Progression
+  - [x]* 5.2 Write property test for `EmulatorScenarioEngine` — Property 24: Emulator Normal Path Progression
     - **Property 24: Emulator Normal Path Progression**
     - **Validates: Emulator Architecture — Normal scenario**
 
-  - [ ]* 5.3 Write property test for `EmulatorScenarioEngine` — Property 25: Emulator Drift Accumulation
+  - [x]* 5.3 Write property test for `EmulatorScenarioEngine` — Property 25: Emulator Drift Accumulation
     - **Property 25: Emulator Drift Accumulation**
     - **Validates: Emulator Architecture — Drift scenario**
 
-  - [ ]* 5.4 Write property test for `EmulatorScenarioEngine` — Property 26: Emulator Stuck Position Invariant
+  - [x]* 5.4 Write property test for `EmulatorScenarioEngine` — Property 26: Emulator Stuck Position Invariant
     - **Property 26: Emulator Stuck Position Invariant**
     - **Validates: Emulator Architecture — Stuck scenario**
 
-  - [ ]* 5.5 Write property test for `EmulatorScenarioEngine` — Property 27: Emulator Signal Interference Quality Bound
+  - [x]* 5.5 Write property test for `EmulatorScenarioEngine` — Property 27: Emulator Signal Interference Quality Bound
     - **Property 27: Emulator Signal Interference Quality Bound**
     - **Validates: Emulator Architecture — Signal Interference scenario**
 
-  - [ ]* 5.6 Write property test for `EmulatorScenarioEngine` — Property 28: Emulator Signal Loss Gap
+  - [x]* 5.6 Write property test for `EmulatorScenarioEngine` — Property 28: Emulator Signal Loss Gap
     - **Property 28: Emulator Signal Loss Gap**
     - **Validates: Emulator Architecture — Signal Loss scenario**
 
@@ -103,7 +103,7 @@ The emulator is built **first** so development and testing can proceed without a
     - No USB permissions required; runs on any Android emulator or device
     - _Requirements: 1.1–1.8, 2.1–2.6, 4.6_
 
-  - [ ]* 5.8 Write property test for `EmulatedMowerDevice` — Property 29: Emulator Busy Response
+  - [x]* 5.8 Write property test for `EmulatedMowerDevice` — Property 29: Emulator Busy Response
     - **Property 29: Emulator Busy Response**
     - **Validates: Emulator Architecture — Busy scenario**
 
@@ -122,7 +122,7 @@ The emulator is built **first** so development and testing can proceed without a
     - Depends on `UsbConnectionManager`, `ProtocolEncoder`, `ProtocolDecoder` being available
     - _Requirements: Emulator Architecture — DI Wiring_
 
-  - [~] 6.3 Implement optional runtime toggle (debug builds only): `DataStore<Preferences>` preference key `device_mode` (`REAL` / `EMULATOR`); delegating `MowerDevice` wrapper that reads the preference and forwards calls to the appropriate implementation; surface toggle on the debug settings screen
+  - [x] 6.3 Implement optional runtime toggle (debug builds only): `DataStore<Preferences>` preference key `device_mode` (`REAL` / `EMULATOR`); delegating `MowerDevice` wrapper that reads the preference and forwards calls to the appropriate implementation; surface toggle on the debug settings screen
     - _Requirements: Emulator Architecture — DI Wiring_
 
 - [~] 7. Checkpoint — Ensure emulator builds and all emulator-layer tests pass; verify `DebugEmulatorScreen` is reachable in the `emulator` flavor. Ask the user if questions arise.
@@ -131,18 +131,18 @@ The emulator is built **first** so development and testing can proceed without a
   - [~] 8.1 Implement `UsbConnectionManager`: register `BroadcastReceiver` for `ACTION_USB_DEVICE_ATTACHED` / `ACTION_USB_DEVICE_DETACHED`; open `UsbDeviceConnection`; expose `Flow<ConnectionEvent>`; all I/O on `Dispatchers.IO`
     - _Requirements: 1.1, 10.1_
 
-  - [~] 8.2 Implement `UsbMowerDataSource`: write encoded frames to bulk-out endpoint; read from bulk-in endpoint in a dedicated coroutine loop; expose `suspend fun send(envelope)` and `Flow<IncomingMessage>`; used internally by `UsbMowerDevice` only
+  - [x] 8.2 Implement `UsbMowerDataSource`: write encoded frames to bulk-out endpoint; read from bulk-in endpoint in a dedicated coroutine loop; expose `suspend fun send(envelope)` and `Flow<IncomingMessage>`; used internally by `UsbMowerDevice` only
     - _Requirements: 1.1, 10.4_
 
-  - [~] 8.3 Implement `UsbMowerDevice` in `data/device/usb/UsbMowerDevice.kt`: implements `MowerDevice`; wraps `UsbConnectionManager`, `UsbMowerDataSource`, `ProtocolEncoder`, `ProtocolDecoder`; no repository or use-case code imports this class directly
+  - [x] 8.3 Implement `UsbMowerDevice` in `data/device/usb/UsbMowerDevice.kt`: implements `MowerDevice`; wraps `UsbConnectionManager`, `UsbMowerDataSource`, `ProtocolEncoder`, `ProtocolDecoder`; no repository or use-case code imports this class directly
     - _Requirements: 1.1–1.8, 10.1, 10.4_
 
 
 - [ ] 9. Android — connection management
-  - [~] 9.1 Implement `ConnectMowerUseCase`: inject `MowerDevice`; orchestrate `HELLO → PAIR_REQUEST (retry 3×, 3000 ms) → SESSION_START → SESSION_ACK` handshake; handle `ERR_UNAUTHORIZED` (no retry); expose `ConnectionState` flow
+  - [x] 9.1 Implement `ConnectMowerUseCase`: inject `MowerDevice`; orchestrate `HELLO → PAIR_REQUEST (retry 3×, 3000 ms) → SESSION_START → SESSION_ACK` handshake; handle `ERR_UNAUTHORIZED` (no retry); expose `ConnectionState` flow
     - _Requirements: 1.1, 1.2, 1.3, 1.7_
 
-  - [~] 9.2 Implement heartbeat loop in `ConnectMowerUseCase`: send `HEARTBEAT` every 1000 ms via `MowerDevice.send()`; terminate session after 3 consecutive missed responses; send `RANGING_STOP` on explicit user disconnect
+  - [x] 9.2 Implement heartbeat loop in `ConnectMowerUseCase`: send `HEARTBEAT` every 1000 ms via `MowerDevice.send()`; terminate session after 3 consecutive missed responses; send `RANGING_STOP` on explicit user disconnect
     - _Requirements: 1.4, 1.5, 1.6_
 
   - [~] 9.3 Implement `HomeViewModel` and `HomeScreen` composable: show connection status, most recent session summary, connect/disconnect button
@@ -150,7 +150,7 @@ The emulator is built **first** so development and testing can proceed without a
     - _Requirements: 1.1–1.7, 8.5_
 
 - [ ] 10. Android — UWB ranging and trilateration
-  - [~] 10.1 Implement `TrilaterationSolver.kt`: Gauss-Newton iterative solver over 3+ anchor measurements; return `MowerPosition` or error if fewer than 3 anchors
+  - [x] 10.1 Implement `TrilaterationSolver.kt`: Gauss-Newton iterative solver over 3+ anchor measurements; return `MowerPosition` or error if fewer than 3 anchors
     - _Requirements: 2.2, 2.7_
 
   - [ ]* 10.2 Write property test for `TrilaterationSolver` — Property 2: Trilateration Validity
@@ -161,7 +161,7 @@ The emulator is built **first** so development and testing can proceed without a
     - **Property 22: Minimum Anchor Count for Ranging**
     - **Validates: Requirements 2.7**
 
-  - [~] 10.4 Implement `StartRangingUseCase`: inject `MowerDevice`; send `RANGING_START` (sampleRateHz ≥ 5) via `MowerDevice.send()`; filter samples with `quality < 0.5`; apply trilateration; emit `MowerPosition`; detect 3000 ms timeout → `isPositionLost`; send `RANGING_STOP` on screen leave
+  - [x] 10.4 Implement `StartRangingUseCase`: inject `MowerDevice`; send `RANGING_START` (sampleRateHz ≥ 5) via `MowerDevice.send()`; filter samples with `quality < 0.5`; apply trilateration; emit `MowerPosition`; detect 3000 ms timeout → `isPositionLost`; send `RANGING_STOP` on screen leave
     - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6_
 
   - [ ]* 10.5 Write property test for `StartRangingUseCase` sample filter — Property 3: Low-Quality Sample Rejection
@@ -169,102 +169,102 @@ The emulator is built **first** so development and testing can proceed without a
     - **Validates: Requirements 2.4**
 
 - [ ] 11. Android — 2D map display
-  - [~] 11.1 Implement `screenToMapMm` coordinate conversion function and its inverse `mapMmToScreen`
+  - [x] 11.1 Implement `screenToMapMm` coordinate conversion function and its inverse `mapMmToScreen`
     - _Requirements: 4.1, 4.2_
 
-  - [ ]* 11.2 Write property test for coordinate conversion — Property 5: Coordinate Conversion Round-Trip
+  - [x]* 11.2 Write property test for coordinate conversion — Property 5: Coordinate Conversion Round-Trip
     - **Property 5: Coordinate Conversion Round-Trip**
     - **Validates: Requirements 4.1, 4.2**
 
-  - [~] 11.3 Implement `MapCanvas` composable: render anchors as labeled markers, mower position marker, zone polygon overlay, coverage filled overlay, destination marker; support pinch-to-zoom and pan via `Modifier.pointerInput`; minimum 0.5 m × 0.5 m cell resolution at default zoom
+  - [x] 11.3 Implement `MapCanvas` composable: render anchors as labeled markers, mower position marker, zone polygon overlay, coverage filled overlay, destination marker; support pinch-to-zoom and pan via `Modifier.pointerInput`; minimum 0.5 m × 0.5 m cell resolution at default zoom
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6_
 
   - [ ]* 11.4 Write property test for map state rendering — Property 4: Map State Rendering Invariants
     - **Property 4: Map State Rendering Invariants**
     - **Validates: Requirements 3.2, 3.5, 3.6**
 
-  - [~] 11.5 Implement `MapViewModel` and `MapScreen` composable: wire `StartRangingUseCase`, expose `MapUiState`, handle tap events for tap-to-move, show "position lost" indicator
+  - [x] 11.5 Implement `MapViewModel` and `MapScreen` composable: wire `StartRangingUseCase`, expose `MapUiState`, handle tap events for tap-to-move, show "position lost" indicator
     - _Requirements: 2.3, 2.5, 4.3, 4.5_
 
 
 - [~] 12. Checkpoint — Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 13. Android — tap-to-move navigation
-  - [~] 13.1 Implement `MoveMowerUseCase`: inject `MowerDevice`; convert tapped screen coordinate to map mm via `screenToMapMm`; validate coordinate is inside zone (if defined); send `MOVE_TO` via `MowerDevice.send()`; handle `ERR_BUSY` (retain previous marker); handle delivery failure after retries (notify user, revert map)
+  - [x] 13.1 Implement `MoveMowerUseCase`: inject `MowerDevice`; convert tapped screen coordinate to map mm via `screenToMapMm`; validate coordinate is inside zone (if defined); send `MOVE_TO` via `MowerDevice.send()`; handle `ERR_BUSY` (retain previous marker); handle delivery failure after retries (notify user, revert map)
     - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 5.7_
 
-  - [ ]* 13.2 Write property test for out-of-zone blocking — Property 8: Out-of-Zone MOVE_TO Blocking
+  - [x]* 13.2 Write property test for out-of-zone blocking — Property 8: Out-of-Zone MOVE_TO Blocking
     - **Property 8: Out-of-Zone MOVE_TO Blocking**
     - **Validates: Requirements 5.7**
 
 - [ ] 14. Android — zone definition
-  - [~] 14.1 Implement `DefineZoneUseCase`: inject `MowerDevice`; collect ≥ 3 vertex taps; send `ZONE_SET` via `MowerDevice.send()` with ordered `vertices` array; persist zone to Room; handle firmware ERROR (restore previous zone); overwrite persisted zone on edit
+  - [x] 14.1 Implement `DefineZoneUseCase`: inject `MowerDevice`; collect ≥ 3 vertex taps; send `ZONE_SET` via `MowerDevice.send()` with ordered `vertices` array; persist zone to Room; handle firmware ERROR (restore previous zone); overwrite persisted zone on edit
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6_
 
-  - [ ]* 14.2 Write property test for `DefineZoneUseCase` — Property 6: ZONE_SET Message Schema and Vertex Ordering
+  - [x]* 14.2 Write property test for `DefineZoneUseCase` — Property 6: ZONE_SET Message Schema and Vertex Ordering
     - **Property 6: ZONE_SET Message Schema and Vertex Ordering**
     - **Validates: Requirements 5.2, 5.3**
 
-  - [~] 14.3 Implement `ZoneViewModel` and `ZoneScreen` composable: zone-drawing mode, vertex placement, confirm/cancel, display current zone
+  - [x] 14.3 Implement `ZoneViewModel` and `ZoneScreen` composable: zone-drawing mode, vertex placement, confirm/cancel, display current zone
     - _Requirements: 5.1, 5.4, 5.5, 5.6_
 
 - [ ] 15. Android — coverage tracking
-  - [~] 15.1 Implement `TrackCoverageUseCase`: receive `COVERAGE_UPDATE` messages from `MowerDevice.incomingMessages`; accumulate segments (union); update map overlay within 500 ms; persist segments to Room; clear on new session start
+  - [x] 15.1 Implement `TrackCoverageUseCase`: receive `COVERAGE_UPDATE` messages from `MowerDevice.incomingMessages`; accumulate segments (union); update map overlay within 500 ms; persist segments to Room; clear on new session start
     - _Requirements: 6.1, 6.3, 6.4, 6.5_
 
-  - [ ]* 15.2 Write property test for coverage accumulation — Property 9: Coverage Accumulation Invariant
+  - [x]* 15.2 Write property test for coverage accumulation — Property 9: Coverage Accumulation Invariant
     - **Property 9: Coverage Accumulation Invariant**
     - **Validates: Requirements 6.3**
 
-  - [~] 15.3 Implement `computeCoveragePercent`: rasterise zone polygon and coverage segments onto 50 mm grid; compute ratio; display percentage on map; update on each `COVERAGE_UPDATE`
+  - [x] 15.3 Implement `computeCoveragePercent`: rasterise zone polygon and coverage segments onto 50 mm grid; compute ratio; display percentage on map; update on each `COVERAGE_UPDATE`
     - _Requirements: 6.6_
 
-  - [ ]* 15.4 Write property test for coverage percentage — Property 10: Coverage Percentage Correctness
+  - [x]* 15.4 Write property test for coverage percentage — Property 10: Coverage Percentage Correctness
     - **Property 10: Coverage Percentage Correctness**
     - **Validates: Requirements 6.6**
 
 - [ ] 16. Android — scheduling
-  - [~] 16.1 Implement `ManageScheduleUseCase`: inject `MowerDevice`; create/delete schedules; send `SCHEDULE_SET` via `MowerDevice.send()` (with `deleted: true` for deletions); persist to Room; queue with `pendingSync = true` when offline
+  - [x] 16.1 Implement `ManageScheduleUseCase`: inject `MowerDevice`; create/delete schedules; send `SCHEDULE_SET` via `MowerDevice.send()` (with `deleted: true` for deletions); persist to Room; queue with `pendingSync = true` when offline
     - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6_
 
-  - [ ]* 16.2 Write property test for `SCHEDULE_SET` message schema — Property 15: SCHEDULE_SET Message Schema
+  - [x]* 16.2 Write property test for `SCHEDULE_SET` message schema — Property 15: SCHEDULE_SET Message Schema
     - **Property 15: SCHEDULE_SET Message Schema**
     - **Validates: Requirements 7.3**
 
-  - [~] 16.3 Implement `PendingSyncUseCase`: observe `ConnectionState`; on transition to `Connected`, query schedules with `pendingSync = true` and send `SCHEDULE_SET` for each via `MowerDevice.send()`; clear flag on success
+  - [x] 16.3 Implement `PendingSyncUseCase`: observe `ConnectionState`; on transition to `Connected`, query schedules with `pendingSync = true` and send `SCHEDULE_SET` for each via `MowerDevice.send()`; clear flag on success
     - _Requirements: 7.6_
 
-  - [~] 16.4 Implement `ScheduleViewModel` and `ScheduleScreen` composable: list active schedules (start time, days, zone name), create/delete schedule UI
+  - [x] 16.4 Implement `ScheduleViewModel` and `ScheduleScreen` composable: list active schedules (start time, days, zone name), create/delete schedule UI
     - _Requirements: 7.1, 7.4, 7.7_
 
 
-- [ ] 17. Android — session history
-  - [~] 17.1 Implement `SessionHistoryRepository`: persist `SessionRecord` on session end (start/end timestamps, duration, distance, coverage%); load records sorted by `startTimestampUtcMs` DESC; schedule WorkManager daily cleanup for records older than 90 days
+- [x] 17. Android — session history
+  - [x] 17.1 Implement `SessionHistoryRepository`: persist `SessionRecord` on session end (start/end timestamps, duration, distance, coverage%); load records sorted by `startTimestampUtcMs` DESC; schedule WorkManager daily cleanup for records older than 90 days
     - _Requirements: 8.1, 8.2, 8.4_
 
-  - [ ]* 17.2 Write property test for session history sort order — Property 18: Session History Sort Order
+  - [x]* 17.2 Write property test for session history sort order — Property 18: Session History Sort Order
     - **Property 18: Session History Sort Order**
     - **Validates: Requirements 8.2**
 
-  - [ ]* 17.3 Write property test for 90-day retention — Property 19: Session History 90-Day Retention
+  - [x]* 17.3 Write property test for 90-day retention — Property 19: Session History 90-Day Retention
     - **Property 19: Session History 90-Day Retention**
     - **Validates: Requirements 8.4**
 
-  - [~] 17.4 Implement `LoadHistoryUseCase`, `HistoryViewModel`, and `HistoryScreen` composable: list records, tap to view coverage map for that session
+  - [x] 17.4 Implement `LoadHistoryUseCase`, `HistoryViewModel`, and `HistoryScreen` composable: list records, tap to view coverage map for that session
     - _Requirements: 8.2, 8.3_
 
-- [ ] 18. Android — error handling and offline resilience
-  - [~] 18.1 Implement structured error logging in `ProtocolDecoder`: log `code`, `name`, `failedMessageId` with structured tags; route ERROR messages to the appropriate use case; display human-readable snackbar notifications via `UiEvent`
+- [x] 18. Android — error handling and offline resilience
+  - [x] 18.1 Implement structured error logging in `ProtocolDecoder`: log `code`, `name`, `failedMessageId` with structured tags; route ERROR messages to the appropriate use case; display human-readable snackbar notifications via `UiEvent`
     - _Requirements: 10.2_
 
-  - [ ]* 18.2 Write property test for error logging — Property 20: Error Message Logging Completeness
+  - [x]* 18.2 Write property test for error logging — Property 20: Error Message Logging Completeness
     - **Property 20: Error Message Logging Completeness**
     - **Validates: Requirements 10.2**
 
-  - [~] 18.3 Implement offline data availability: ensure all ViewModels load persisted zone, coverage, history, schedules, and anchor data from Room when `ConnectionState` is `Disconnected`; verify no main-thread I/O with `StrictMode` in debug builds
+  - [x] 18.3 Implement offline data availability: ensure all ViewModels load persisted zone, coverage, history, schedules, and anchor data from Room when `ConnectionState` is `Disconnected`; verify no main-thread I/O with `StrictMode` in debug builds
     - _Requirements: 10.4, 10.5_
 
-  - [ ]* 18.4 Write property test for offline data availability — Property 21: Offline Data Availability
+  - [x]* 18.4 Write property test for offline data availability — Property 21: Offline Data Availability
     - **Property 21: Offline Data Availability**
     - **Validates: Requirements 10.5**
 
@@ -317,23 +317,23 @@ The emulator is built **first** so development and testing can proceed without a
 - [~] 25. Checkpoint — Ensure all firmware tests pass, ask the user if questions arise.
 
 
-- [ ] 26. Integration wiring and end-to-end validation
-  - [~] 26.1 Wire all Android use cases (`ConnectMowerUseCase`, `StartRangingUseCase`, `MoveMowerUseCase`, `DefineZoneUseCase`, `TrackCoverageUseCase`, `ManageScheduleUseCase`) to `MowerDevice` via Hilt injection; verify `ConnectionState` propagates to all ViewModels; confirm no use case or repository imports `UsbMowerDevice` or `EmulatedMowerDevice` directly
+- [x] 26. Integration wiring and end-to-end validation
+  - [x] 26.1 Wire all Android use cases (`ConnectMowerUseCase`, `StartRangingUseCase`, `MoveMowerUseCase`, `DefineZoneUseCase`, `TrackCoverageUseCase`, `ManageScheduleUseCase`) to `MowerDevice` via Hilt injection; verify `ConnectionState` propagates to all ViewModels; confirm no use case or repository imports `UsbMowerDevice` or `EmulatedMowerDevice` directly
     - _Requirements: 1.1–1.8, 2.1–2.7, 4.1–4.6, 5.1–5.7, 6.1–6.6, 7.1–7.7_
 
-  - [~] 26.2 Wire `PendingSyncUseCase` into the connection lifecycle so pending schedules are flushed on reconnect
+  - [x] 26.2 Wire `PendingSyncUseCase` into the connection lifecycle so pending schedules are flushed on reconnect
     - _Requirements: 7.6_
 
-  - [~] 26.3 Wire `SessionHistoryRepository` to session lifecycle: persist `SessionRecord` on session end; display most recent session summary on `HomeScreen`
+  - [x] 26.3 Wire `SessionHistoryRepository` to session lifecycle: persist `SessionRecord` on session end; display most recent session summary on `HomeScreen`
     - _Requirements: 8.1, 8.5_
 
-  - [ ]* 26.4 Write integration tests for the Android connection state machine: test each state transition with a mock `MowerDevice` (not `UsbMowerDevice`); test heartbeat timeout with fake clock
+  - [x]* 26.4 Write integration tests for the Android connection state machine: test each state transition with a mock `MowerDevice` (not `UsbMowerDevice`); test heartbeat timeout with fake clock
     - _Requirements: 1.1–1.8_
 
-  - [ ]* 26.5 Write integration tests for offline schedule queuing: verify pending schedules are sent on reconnection using mock `MowerDevice`
+  - [x]* 26.5 Write integration tests for offline schedule queuing: verify pending schedules are sent on reconnection using mock `MowerDevice`
     - _Requirements: 7.6_
 
-  - [ ]* 26.6 Write integration tests for coverage overlay clearing: verify overlay resets when a new session starts
+  - [x]* 26.6 Write integration tests for coverage overlay clearing: verify overlay resets when a new session starts
     - _Requirements: 6.5_
 
 - [~] 27. Final checkpoint — Ensure all tests pass, ask the user if questions arise.

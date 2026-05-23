@@ -1,10 +1,13 @@
 package com.kosilka.core.di
 
+import android.content.Context
+import androidx.work.WorkManager
 import com.kosilka.core.CoroutineDispatchers
 import com.kosilka.core.MessageIdGenerator
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
@@ -19,4 +22,9 @@ object CoreModule {
     @Provides
     @Singleton
     fun provideMessageIdGenerator(): MessageIdGenerator = MessageIdGenerator()
+
+    @Provides
+    @Singleton
+    fun provideWorkManager(@ApplicationContext context: Context): WorkManager =
+        WorkManager.getInstance(context)
 }

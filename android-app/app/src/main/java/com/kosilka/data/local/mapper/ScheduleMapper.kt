@@ -15,6 +15,7 @@ fun ScheduleEntity.toDomain(): Schedule {
         startTimeUtcHhmm = startTimeUtcHhmm,
         daysOfWeek = days,
         zoneId = zoneId,
+        isDeleted = isDeleted,
         pendingSync = pendingSync
     )
 }
@@ -26,6 +27,7 @@ fun Schedule.toEntity(): ScheduleEntity {
         startTimeUtcHhmm = startTimeUtcHhmm,
         daysOfWeekJson = daysJson,
         zoneId = zoneId,
+        isDeleted = isDeleted,
         pendingSync = pendingSync
     )
 }

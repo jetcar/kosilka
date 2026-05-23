@@ -1,0 +1,48 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Run emulator unit and androidTest compile checks",
+			"type": "shell",
+			"command": ".\\gradlew",
+			"args": [
+				":app:testEmulatorDebugUnitTest",
+				":app:compileEmulatorDebugAndroidTestKotlin"
+			],
+			"problemMatcher": [
+				"$tsc"
+			]
+		},
+		{
+			"label": "Assemble Emulator Debug",
+			"type": "shell",
+			"command": ".\\gradlew.bat",
+			"args": [
+				":app:assembleEmulatorDebug",
+				"--console=plain"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "healthcheck-write-file",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"Set-Content -Path .\\task-healthcheck.txt -Value ok -Encoding ascii"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Install Emulator Debug",
+			"type": "shell",
+			"command": ".\\gradlew.bat",
+			"args": [
+				":app:installEmulatorDebug",
+				"--stacktrace"
+			],
+			"isBackground": false
+		}
+	]
+}

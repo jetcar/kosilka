@@ -12,7 +12,7 @@ interface ScheduleDao {
     @Upsert
     suspend fun upsertSchedule(schedule: ScheduleEntity)
 
-    @Query("SELECT * FROM schedules")
+    @Query("SELECT * FROM schedules WHERE isDeleted = 0")
     fun getAllSchedules(): Flow<List<ScheduleEntity>>
 
     @Query("SELECT * FROM schedules WHERE pendingSync = 1")
@@ -20,6 +20,9 @@ interface ScheduleDao {
 
     @Query("DELETE FROM schedules WHERE scheduleId = :scheduleId")
     suspend fun deleteSchedule(scheduleId: String)
+
+    @Query("UPDATE schedules SET isDeleted = 1, pendingSync = 1 WHERE scheduleId = :scheduleId")
+    suspend fun markDeletedPending(scheduleId: String)
 
     @Query("UPDATE schedules SET pendingSync = 0 WHERE scheduleId = :scheduleId")
     suspend fun markSynced(scheduleId: String)

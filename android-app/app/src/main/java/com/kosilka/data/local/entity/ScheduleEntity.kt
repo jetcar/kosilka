@@ -10,6 +10,8 @@ data class ScheduleEntity(
     // JSON-serialised array of day-of-week integers (0=Sunday … 6=Saturday)
     val daysOfWeekJson: String,
     val zoneId: String?,
+    // true if locally marked for deletion and awaiting sync
+    val isDeleted: Boolean,
     // true when the schedule has not yet been synced to the firmware
     val pendingSync: Boolean
 )

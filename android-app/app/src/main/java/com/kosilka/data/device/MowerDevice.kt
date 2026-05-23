@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.Flow
  * Abstraction over the physical mower transport.
  *
  * All domain, use-case, and repository code depends only on this interface.
- * Neither UsbMowerDevice nor EmulatedMowerDevice is imported above the data layer.
+ * Transport implementations remain inside the data layer.
  * Hilt provides the concrete binding per build flavor.
  */
 interface MowerDevice {

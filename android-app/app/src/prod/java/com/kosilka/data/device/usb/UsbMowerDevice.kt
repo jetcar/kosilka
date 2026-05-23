@@ -18,9 +18,16 @@ class UsbMowerDevice @Inject constructor(
 
     override val incomingMessages: Flow<IncomingMessage> = dataSource.incomingMessages
 
-    override suspend fun connect(): Result<Unit> = connectionManager.connect()
+    override suspend fun connect(): Result<Unit> {
+        val result = connectionManager.connect()
+        if (result.isSuccess) {
+            dataSource.startReading()
+        }
+        return result
+    }
 
     override suspend fun disconnect() {
+        dataSource.stopReading()
         connectionManager.disconnect()
     }
 

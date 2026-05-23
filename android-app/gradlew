@@ -1,0 +1,47 @@
+#!/bin/sh
+
+#
+# Copyright 2015 the original author or authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+set -e
+
+APP_HOME=$(cd "${0%/*}" && pwd -P)
+CLASSPATH=$APP_HOME/gradle/wrapper/gradle-wrapper.jar
+
+if [ ! -f "$CLASSPATH" ]; then
+    echo "gradle-wrapper.jar is missing, attempting to download it..."
+    mkdir -p "$APP_HOME/gradle/wrapper"
+    WRAPPER_URL="https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fL "$WRAPPER_URL" -o "$CLASSPATH"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -O "$CLASSPATH" "$WRAPPER_URL"
+    fi
+fi
+
+if [ ! -f "$CLASSPATH" ]; then
+    echo "ERROR: Failed to download gradle-wrapper.jar"
+    echo "Please place the file at: $CLASSPATH"
+    exit 1
+fi
+
+if [ -n "$JAVA_HOME" ] ; then
+    JAVACMD="$JAVA_HOME/bin/java"
+else
+    JAVACMD="java"
+fi
+
+exec "$JAVACMD" -Xmx64m -Xms64m $JAVA_OPTS $GRADLE_OPTS -Dorg.gradle.appname=gradlew -classpath "$CLASSPATH" org.gradle.wrapper.GradleWrapperMain "$@"

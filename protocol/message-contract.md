@@ -10,6 +10,22 @@ This file is the executable contract for communication between:
 - Breaking payload changes require a new major protocol version.
 - Current supported version: **2** (bumped from 1 to introduce `MOVE_TO`, `ZONE_SET`, `COVERAGE_UPDATE`, and `SCHEDULE_SET`).
 
+## REST emulator service contract
+
+For Android emulator mode, the app can talk to a REST service instead of direct USB transport.
+
+- Base URL: `http://10.0.2.2:8080` (from Android Emulator to host machine)
+- Endpoints:
+  - `POST /api/v1/device/connect`
+  - `POST /api/v1/device/disconnect`
+  - `POST /api/v1/device/send` (body is protocol envelope JSON)
+  - `GET /api/v1/device/messages?sinceId=<messageId>`
+  - `GET /api/v1/emulator/state`
+  - `POST /api/v1/emulator/scenario/activate`
+  - `POST /api/v1/emulator/scenario/clear`
+
+`/api/v1/device/messages` must return protocol envelopes compatible with this document.
+
 ## Canonical envelope
 
 Every message — in both directions — MUST include all six top-level fields.
