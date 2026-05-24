@@ -63,8 +63,8 @@ fun MapScreen(
         MapCanvas(
             state = uiState,
             modifier = Modifier.weight(1f),
-            tapEnabled = uiState.isConnected,
-            onTapMap = viewModel::onMapTapped
+            tapEnabled = false,
+            onTapMap = {}
         )
     }
 }

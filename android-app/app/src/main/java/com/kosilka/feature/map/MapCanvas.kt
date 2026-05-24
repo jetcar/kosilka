@@ -101,25 +101,40 @@ fun MapCanvas(
             )
         }
 
-        // Destination marker
-        state.destinationMarker?.let { destination ->
-            val offset = MapCoordinateConverter.mapMmToScreen(
-                mapPoint = destination,
-                panOffsetPx = pan,
-                zoom = zoom,
-                pixelsPerMeterAtZoom1 = pxPerMeterAtZoom1
-            )
-            drawCircle(color = Color(0xFFFF9800), radius = 12f, center = offset)
-        }
-
-        // Mower marker
-        state.mowerPosition?.let { mower ->
-            val offset = MapCoordinateConverter.mapMmToScreen(
+        val mowerOffset = state.mowerPosition?.let { mower ->
+            MapCoordinateConverter.mapMmToScreen(
                 mapPoint = Point2dMm(mower.xMm, mower.yMm),
                 panOffsetPx = pan,
                 zoom = zoom,
                 pixelsPerMeterAtZoom1 = pxPerMeterAtZoom1
             )
+        }
+
+        val destinationOffset = state.destinationMarker?.let { destination ->
+            MapCoordinateConverter.mapMmToScreen(
+                mapPoint = destination,
+                panOffsetPx = pan,
+                zoom = zoom,
+                pixelsPerMeterAtZoom1 = pxPerMeterAtZoom1
+            )
+        }
+
+        if (mowerOffset != null && destinationOffset != null) {
+            drawLine(
+                color = Color(0xCCFB8C00),
+                start = mowerOffset,
+                end = destinationOffset,
+                strokeWidth = 3f
+            )
+        }
+
+        // Destination marker
+        destinationOffset?.let { offset ->
+            drawCircle(color = Color(0xFFFF9800), radius = 12f, center = offset)
+        }
+
+        // Mower marker
+        mowerOffset?.let { offset ->
             drawCircle(color = Color(0xFFD32F2F), radius = 14f, center = offset)
         }
     }

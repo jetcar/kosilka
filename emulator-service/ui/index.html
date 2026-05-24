@@ -29,6 +29,86 @@
             color: var(--text);
         }
 
+        .command-log {
+            margin-top: 12px;
+            border: 1px solid #2a3a50;
+            border-radius: 8px;
+            background: #111c2b;
+            color: #c8d8e8;
+            font-size: 12px;
+            overflow: hidden;
+        }
+
+        .command-log-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 6px 12px;
+            background: #0d1520;
+            border-bottom: 1px solid #2a3a50;
+            font-weight: 600;
+            color: #88aacc;
+            font-size: 12px;
+        }
+
+        .command-log-header button {
+            font-size: 11px;
+            padding: 2px 8px;
+        }
+
+        .command-log-entries {
+            max-height: 220px;
+            overflow-y: auto;
+            padding: 4px 0;
+        }
+
+        .command-log-entry {
+            display: grid;
+            grid-template-columns: 86px 1fr;
+            gap: 8px;
+            padding: 3px 12px;
+            border-bottom: 1px solid #1a2a3a;
+            line-height: 1.5;
+            font-family: 'Cascadia Code', 'Consolas', monospace;
+        }
+
+        .command-log-entry:last-child {
+            border-bottom: none;
+        }
+
+        .command-log-time {
+            color: #4a6880;
+            white-space: nowrap;
+        }
+
+        .command-log-type {
+            font-weight: 700;
+        }
+
+        .cmd-MOVE_TO .command-log-type {
+            color: #ff9800;
+        }
+
+        .cmd-RANGING_START .command-log-type {
+            color: #4fc3f7;
+        }
+
+        .cmd-RANGING_STOP .command-log-type {
+            color: #4fc3f7;
+        }
+
+        .cmd-SESSION_START .command-log-type {
+            color: #81c784;
+        }
+
+        .cmd-PAIR_REQUEST .command-log-type {
+            color: #ce93d8;
+        }
+
+        .cmd-detail {
+            color: #607080;
+        }
+
         .layout {
             display: grid;
             grid-template-columns: 340px 1fr;
@@ -193,28 +273,40 @@
             </div>
 
             <div class="panel stack">
-                <h2>Set Mower Position</h2>
-                <div class="row">
-                    <label>
-                        X (mm)
-                        <input id="mowerX" type="number" value="0" />
-                    </label>
-                    <label>
-                        Y (mm)
-                        <input id="mowerY" type="number" value="0" />
-                    </label>
-                </div>
-                <button id="setMowerBtn" class="ghost">Apply Position</button>
+                <h2>Navigation</h2>
+                <div class="muted">Navigation is controlled from the mobile application.</div>
             </div>
 
             <div class="panel stack">
                 <h2>Tags</h2>
                 <div id="tagList" class="tag-list"></div>
             </div>
+
+            <div class="panel stack">
+                <h2>Movement Physics</h2>
+                <label>
+                    Speed (mm/s)
+                    <input id="speedInput" type="number" value="200" min="10" max="5000" />
+                </label>
+                <label>
+                    Rotation Speed (°/s)
+                    <input id="rotSpeedInput" type="number" value="90" min="10" max="720" />
+                </label>
+                <button id="applyPhysicsBtn" class="ghost">Apply</button>
+            </div>
         </section>
 
         <section class="panel">
             <canvas id="map" width="1200" height="800"></canvas>
+            <div id="commandLog" class="command-log">
+                <div class="command-log-header">
+                    <span>Commands from App</span>
+                    <button id="clearCommandLogBtn" class="ghost">Clear</button>
+                </div>
+                <div id="commandLogEntries" class="command-log-entries">
+                    <div class="muted">No commands yet.</div>
+                </div>
+            </div>
         </section>
     </div>
 
@@ -232,10 +324,6 @@
         const addTagBtn = document.getElementById('addTagBtn');
         const clearTagsBtn = document.getElementById('clearTagsBtn');
 
-        const mowerX = document.getElementById('mowerX');
-        const mowerY = document.getElementById('mowerY');
-        const setMowerBtn = document.getElementById('setMowerBtn');
-
         const world = {
             minX: 0,
             minY: 0,
@@ -246,7 +334,11 @@
         let latestState = {
             activeScenario: 'NORMAL',
             connected: false,
-            position: { xMm: 0, yMm: 0 }
+            position: { xMm: 0, yMm: 0 },
+            headingDeg: 0,
+            destination: null,
+            speedMmPerSec: 200,
+            rotationSpeedDegPerSec: 90
         };
 
         let tags = [];
@@ -377,8 +469,6 @@
             }
 
             latestState.position = clamped;
-            mowerX.value = clamped.xMm;
-            mowerY.value = clamped.yMm;
             positionLine.textContent = `Position: x=${clamped.xMm} mm, y=${clamped.yMm} mm`;
             renderMap();
         }
@@ -459,38 +549,127 @@
         }
 
         function drawMower() {
-            const p = mapToScreen(latestState.position || { xMm: 0, yMm: 0 });
+            const pos = latestState.position || { xMm: 0, yMm: 0 };
+            const p = mapToScreen(pos);
             const isActive = isDraggingMower;
+            const radius = 16;
+            // Canvas Y axis is inverted relative to map Y, so negate heading
+            const headingRad = -(latestState.headingDeg || 0) * Math.PI / 180;
 
+            mapCtx.save();
+            mapCtx.translate(p.x, p.y);
+            mapCtx.rotate(headingRad);
+
+            // Body circle
             mapCtx.beginPath();
             mapCtx.fillStyle = isActive ? '#bf360c' : '#e65100';
-            mapCtx.arc(p.x, p.y, 11, 0, Math.PI * 2);
+            mapCtx.arc(0, 0, radius, 0, Math.PI * 2);
             mapCtx.fill();
 
+            // Front half highlight (green arc) — +X side
+            mapCtx.beginPath();
+            mapCtx.fillStyle = 'rgba(200,255,200,0.18)';
+            mapCtx.moveTo(0, 0);
+            mapCtx.arc(0, 0, radius, -Math.PI / 2, Math.PI / 2);
+            mapCtx.closePath();
+            mapCtx.fill();
+
+            // Back half tint (dark arc) — -X side
+            mapCtx.beginPath();
+            mapCtx.fillStyle = 'rgba(0,0,0,0.22)';
+            mapCtx.moveTo(0, 0);
+            mapCtx.arc(0, 0, radius, Math.PI / 2, -Math.PI / 2);
+            mapCtx.closePath();
+            mapCtx.fill();
+
+            // Centre divider line (front/back separator)
+            mapCtx.beginPath();
+            mapCtx.strokeStyle = 'rgba(255,255,255,0.5)';
+            mapCtx.lineWidth = 1.5;
+            mapCtx.moveTo(0, -radius);
+            mapCtx.lineTo(0, radius);
+            mapCtx.stroke();
+
+            // Front arrow (white triangle pointing +X)
+            mapCtx.beginPath();
+            mapCtx.fillStyle = '#ffffff';
+            mapCtx.moveTo(radius + 8, 0);
+            mapCtx.lineTo(radius - 2, -5);
+            mapCtx.lineTo(radius - 2, 5);
+            mapCtx.closePath();
+            mapCtx.fill();
+
+            // Back dot (dark circle at -X side)
+            mapCtx.beginPath();
+            mapCtx.fillStyle = 'rgba(0,0,0,0.55)';
+            mapCtx.arc(-radius + 5, 0, 4, 0, Math.PI * 2);
+            mapCtx.fill();
+
+            mapCtx.restore();
+
+            // Outer ring (unrotated)
             mapCtx.strokeStyle = isActive ? '#7f2704' : '#bf360c';
             mapCtx.lineWidth = 2;
             mapCtx.beginPath();
-            mapCtx.arc(p.x, p.y, 16, 0, Math.PI * 2);
+            mapCtx.arc(p.x, p.y, radius + 5, 0, Math.PI * 2);
             mapCtx.stroke();
-
-            if (isActive) {
-                mapCtx.beginPath();
-                mapCtx.strokeStyle = '#7f2704';
-                mapCtx.lineWidth = 2;
-                mapCtx.arc(p.x, p.y, 21, 0, Math.PI * 2);
-                mapCtx.stroke();
-            }
 
             mapCtx.fillStyle = '#bf360c';
             mapCtx.font = 'bold 13px Segoe UI';
-            mapCtx.fillText('Mower', p.x + 12, p.y + 4);
+            mapCtx.fillText('Mower', p.x + radius + 10, p.y + 4);
 
             mapCtx.lineWidth = 1;
+        }
+
+        function drawDestination() {
+            if (!latestState.destination) {
+                return;
+            }
+            const dest = latestState.destination;
+            const p = mapToScreen(dest);
+            const size = 13;
+
+            // Dashed line from mower to destination
+            const mowerPt = mapToScreen(latestState.position || { xMm: 0, yMm: 0 });
+            mapCtx.save();
+            mapCtx.strokeStyle = '#ce93d8';
+            mapCtx.lineWidth = 1.5;
+            mapCtx.setLineDash([6, 5]);
+            mapCtx.beginPath();
+            mapCtx.moveTo(mowerPt.x, mowerPt.y);
+            mapCtx.lineTo(p.x, p.y);
+            mapCtx.stroke();
+            mapCtx.setLineDash([]);
+
+            // Crosshair circle
+            mapCtx.strokeStyle = '#9c27b0';
+            mapCtx.lineWidth = 2;
+            mapCtx.setLineDash([4, 4]);
+            mapCtx.beginPath();
+            mapCtx.arc(p.x, p.y, size, 0, Math.PI * 2);
+            mapCtx.stroke();
+            mapCtx.setLineDash([]);
+
+            // Crosshair lines
+            mapCtx.beginPath();
+            mapCtx.moveTo(p.x - size - 5, p.y);
+            mapCtx.lineTo(p.x + size + 5, p.y);
+            mapCtx.moveTo(p.x, p.y - size - 5);
+            mapCtx.lineTo(p.x, p.y + size + 5);
+            mapCtx.stroke();
+
+            // Label
+            mapCtx.fillStyle = '#9c27b0';
+            mapCtx.font = '12px Segoe UI';
+            mapCtx.fillText(`⟶ (${dest.xMm}, ${dest.yMm})`, p.x + size + 7, p.y - 4);
+
+            mapCtx.restore();
         }
 
         function renderMap() {
             drawGrid();
             drawTags();
+            drawDestination();
             drawMower();
         }
 
@@ -507,10 +686,51 @@
                 latestState = serverState;
             }
             statusLine.textContent = `Connected: ${latestState.connected} | Scenario: ${latestState.activeScenario}`;
-            positionLine.textContent = `Position: x=${latestState.position.xMm} mm, y=${latestState.position.yMm} mm`;
-            mowerX.value = latestState.position.xMm;
-            mowerY.value = latestState.position.yMm;
+            positionLine.textContent = `Position: x=${latestState.position.xMm} mm, y=${latestState.position.yMm} mm  |  Heading: ${Math.round(latestState.headingDeg || 0)}°`;
+            const speedInput = document.getElementById('speedInput');
+            const rotSpeedInput = document.getElementById('rotSpeedInput');
+            if (speedInput && !speedInput.matches(':focus')) speedInput.value = latestState.speedMmPerSec || 200;
+            if (rotSpeedInput && !rotSpeedInput.matches(':focus')) rotSpeedInput.value = latestState.rotationSpeedDegPerSec || 90;
+            renderCommandLog(latestState.commandLog || []);
             renderMap();
+        }
+
+        let lastRenderedCommandCount = 0;
+
+        function formatCommandPayload(messageType, payload) {
+            if (messageType === 'MOVE_TO') {
+                return `x=${payload.targetXMm} mm, y=${payload.targetYMm} mm`;
+            }
+            if (messageType === 'RANGING_START' && payload.sampleRateHz) {
+                return `${payload.sampleRateHz} Hz`;
+            }
+            const keys = Object.keys(payload || {});
+            if (!keys.length) return '';
+            return keys.map((k) => `${k}=${JSON.stringify(payload[k])}`).join(', ');
+        }
+
+        function renderCommandLog(entries) {
+            const container = document.getElementById('commandLogEntries');
+            if (!container || entries.length === lastRenderedCommandCount) {
+                return;
+            }
+            lastRenderedCommandCount = entries.length;
+            container.innerHTML = '';
+            if (!entries.length) {
+                container.innerHTML = '<div class="muted" style="padding:4px 12px">No commands yet.</div>';
+                return;
+            }
+            const fragment = document.createDocumentFragment();
+            for (let i = entries.length - 1; i >= 0; i--) {
+                const entry = entries[i];
+                const div = document.createElement('div');
+                div.className = `command-log-entry cmd-${entry.messageType}`;
+                const timeStr = new Date(entry.atMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                const detail = formatCommandPayload(entry.messageType, entry.payload);
+                div.innerHTML = `<span class="command-log-time">${timeStr}</span><span><span class="command-log-type">${entry.messageType}</span>${detail ? `&nbsp;&nbsp;<span class="muted">${detail}</span>` : ''}</span>`;
+                fragment.appendChild(div);
+            }
+            container.appendChild(fragment);
         }
 
         async function fetchTags() {
@@ -587,22 +807,6 @@
                 await fetch(`/api/v1/emulator/tags/${encodeURIComponent(tag.id)}`, { method: 'DELETE' });
             }
             await refresh();
-        }
-
-        async function setMowerPosition() {
-            const payload = {
-                xMm: Number(mowerX.value),
-                yMm: Number(mowerY.value)
-            };
-            const response = await fetch('/api/v1/emulator/mower-position', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-            if (!response.ok) {
-                alert('Failed to update mower position');
-            }
-            await fetchState();
         }
 
         async function refresh() {
@@ -721,8 +925,6 @@
 
             tagX.value = mapPoint.xMm;
             tagY.value = mapPoint.yMm;
-            mowerX.value = mapPoint.xMm;
-            mowerY.value = mapPoint.yMm;
         });
 
         mapCanvas.addEventListener('touchstart', (event) => {
@@ -797,9 +999,31 @@
             }
         });
 
+        async function applyPhysics() {
+            const speedInput = document.getElementById('speedInput');
+            const rotSpeedInput = document.getElementById('rotSpeedInput');
+            const response = await fetch('/api/v1/emulator/settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    speedMmPerSec: Number(speedInput.value),
+                    rotationSpeedDegPerSec: Number(rotSpeedInput.value)
+                })
+            });
+            if (!response.ok) {
+                alert('Failed to apply physics settings');
+            }
+        }
+
         addTagBtn.addEventListener('click', () => addTag().catch((error) => alert(error.message)));
         clearTagsBtn.addEventListener('click', () => clearTags().catch((error) => alert(error.message)));
-        setMowerBtn.addEventListener('click', () => setMowerPosition().catch((error) => alert(error.message)));
+        document.getElementById('applyPhysicsBtn').addEventListener('click', () => applyPhysics().catch((error) => alert(error.message)));
+        document.getElementById('clearCommandLogBtn').addEventListener('click', () => {
+            lastRenderedCommandCount = 0;
+            fetch('/api/v1/emulator/command-log', { method: 'DELETE' })
+                .then(() => renderCommandLog([]))
+                .catch(() => { });
+        });
 
         refresh().catch((error) => {
             statusLine.textContent = `Failed to load: ${error.message}`;

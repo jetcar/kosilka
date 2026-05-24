@@ -10,11 +10,14 @@ import com.kosilka.domain.usecase.PendingSyncUseCase
 import com.kosilka.domain.usecase.SessionHistoryRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 @HiltViewModel
@@ -27,6 +30,7 @@ class HomeViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
+    private var autoConnectJob: Job? = null
 
     init {
         pendingSyncUseCase.start()
@@ -89,8 +93,18 @@ class HomeViewModel @Inject constructor(
                         )
                     }
                 }
+
+                when (state) {
+                    is ConnectionState.Connected,
+                    ConnectionState.Connecting -> stopAutoConnectLoop()
+
+                    ConnectionState.Disconnected,
+                    is ConnectionState.Failed -> ensureAutoConnectLoop()
+                }
             }
         }
+
+        ensureAutoConnectLoop()
     }
 
     fun connect() {
@@ -101,7 +115,34 @@ class HomeViewModel @Inject constructor(
 
     fun disconnect() {
         viewModelScope.launch {
+            stopAutoConnectLoop()
             connectMowerUseCase.disconnectByUser()
         }
+    }
+
+    private fun ensureAutoConnectLoop() {
+        if (autoConnectJob?.isActive == true) {
+            return
+        }
+
+        autoConnectJob = viewModelScope.launch {
+            while (isActive) {
+                val state = connectMowerUseCase.connectionState.value
+                if (state is ConnectionState.Connected || state is ConnectionState.Connecting) {
+                    break
+                }
+                connectMowerUseCase.connect()
+                delay(AUTO_CONNECT_RETRY_MS)
+            }
+        }
+    }
+
+    private fun stopAutoConnectLoop() {
+        autoConnectJob?.cancel()
+        autoConnectJob = null
+    }
+
+    private companion object {
+        const val AUTO_CONNECT_RETRY_MS = 2_000L
     }
 }

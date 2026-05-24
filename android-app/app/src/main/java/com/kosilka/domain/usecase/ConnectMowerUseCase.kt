@@ -70,14 +70,17 @@ class ConnectMowerUseCase @Inject constructor(
             return
         }
 
+        Log.i(TAG, "connect: starting handshake")
         _connectionState.value = ConnectionState.Connecting
         messageIdGenerator.reset()
         clearChannels()
 
         val transportConnect = mowerDevice.connect()
         if (transportConnect.isFailure) {
+            val reason = transportConnect.exceptionOrNull()?.message ?: "Failed to open mower transport"
+            Log.e(TAG, "connect: transport connect failed: $reason")
             _connectionState.value = ConnectionState.Failed(
-                transportConnect.exceptionOrNull()?.message ?: "Failed to open mower transport"
+                reason
             )
             return
         }
@@ -94,6 +97,7 @@ class ConnectMowerUseCase @Inject constructor(
             )
         )
         if (helloResult.isFailure) {
+            Log.e(TAG, "connect: HELLO send failed: ${helloResult.exceptionOrNull()?.message}")
             _connectionState.value = ConnectionState.Failed("Failed to send HELLO")
             safeDisconnectInternal()
             return
@@ -101,13 +105,14 @@ class ConnectMowerUseCase @Inject constructor(
 
         var paired = false
         var unauthorizedFailure = false
+        var lastPairSendFailure: String? = null
 
-        repeat(3) {
+        repeat(3) { attemptIndex ->
             if (paired || unauthorizedFailure) {
                 return@repeat
             }
 
-            mowerDevice.send(
+            val pairSend = mowerDevice.send(
                 envelope(
                     messageType = ProtocolConstants.TYPE_PAIR_REQUEST,
                     sessionId = negotiatedSessionId,
@@ -115,19 +120,42 @@ class ConnectMowerUseCase @Inject constructor(
                 )
             )
 
+            if (pairSend.isFailure) {
+                lastPairSendFailure = pairSend.exceptionOrNull()?.message ?: "PAIR_REQUEST send failed"
+                Log.w(
+                    TAG,
+                    "connect: PAIR_REQUEST send failed on attempt=${attemptIndex + 1}: $lastPairSendFailure"
+                )
+                delay(250L)
+                return@repeat
+            }
+
+            Log.i(TAG, "connect: PAIR_REQUEST sent, attempt=${attemptIndex + 1}")
+
             when (awaitPairResponseOrUnauthorized(timeoutMs = 3_000L)) {
-                PairingResult.Accepted -> paired = true
-                PairingResult.Unauthorized -> unauthorizedFailure = true
-                PairingResult.Timeout -> Unit
+                PairingResult.Accepted -> {
+                    paired = true
+                    Log.i(TAG, "connect: PAIR_RESPONSE accepted")
+                }
+                PairingResult.Unauthorized -> {
+                    unauthorizedFailure = true
+                    Log.w(TAG, "connect: PAIR_REQUEST unauthorized")
+                }
+                PairingResult.Timeout -> {
+                    Log.w(TAG, "connect: PAIR_RESPONSE timeout on attempt=${attemptIndex + 1}")
+                }
             }
         }
 
         if (!paired) {
             _connectionState.value = if (unauthorizedFailure) {
                 ConnectionState.Failed("Authentication failed (ERR_UNAUTHORIZED)")
+            } else if (!lastPairSendFailure.isNullOrBlank()) {
+                ConnectionState.Failed("PAIR_REQUEST send failed: $lastPairSendFailure")
             } else {
                 ConnectionState.Failed("PAIR_REQUEST timed out after 3 attempts")
             }
+            Log.e(TAG, "connect: pairing failed, reason=${(_connectionState.value as ConnectionState.Failed).reason}")
             safeDisconnectInternal()
             return
         }
@@ -140,6 +168,7 @@ class ConnectMowerUseCase @Inject constructor(
             )
         )
         if (sessionStartSent.isFailure) {
+            Log.e(TAG, "connect: SESSION_START send failed: ${sessionStartSent.exceptionOrNull()?.message}")
             _connectionState.value = ConnectionState.Failed("Failed to send SESSION_START")
             safeDisconnectInternal()
             return
@@ -147,6 +176,7 @@ class ConnectMowerUseCase @Inject constructor(
 
         when (awaitSessionAckOrUnauthorized(timeoutMs = 3_000L)) {
             SessionAckResult.Acked -> {
+                Log.i(TAG, "connect: SESSION_ACK received, connection established")
                 _connectionState.value = ConnectionState.Connected(negotiatedSessionId)
                 lastHeartbeatResponseAtMs = nowMs()
                 startHeartbeatLoop()
@@ -154,11 +184,13 @@ class ConnectMowerUseCase @Inject constructor(
             }
 
             SessionAckResult.Unauthorized -> {
+                Log.w(TAG, "connect: SESSION_START unauthorized")
                 _connectionState.value = ConnectionState.Failed("SESSION_START unauthorized")
                 safeDisconnectInternal()
             }
 
             SessionAckResult.Timeout -> {
+                Log.w(TAG, "connect: SESSION_ACK timeout")
                 _connectionState.value = ConnectionState.Failed("SESSION_ACK timeout")
                 safeDisconnectInternal()
             }

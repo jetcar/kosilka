@@ -16,6 +16,11 @@ node server.js
 
 By default it listens on `http://localhost:8080`.
 
+State file behavior:
+- Default state file: `emulator-service/emulator-state.json`
+- Override with env: `EMULATOR_STATE_FILE=<absolute-or-relative-path>`
+- Service auto-loads this file on startup when it exists.
+
 Open UI:
 - `http://localhost:8080/`
 - `http://localhost:8080/ui`
@@ -32,6 +37,8 @@ The app reads this from `BuildConfig.MOWER_SERVICE_BASE_URL` in prod build confi
 - `POST /api/v1/device/send`
 - `GET /api/v1/device/messages?sinceId=<id>`
 - `GET /api/v1/emulator/state`
+- `POST /api/v1/emulator/state/save`
+- `POST /api/v1/emulator/state/load`
 - `GET /api/v1/emulator/tags`
 - `POST /api/v1/emulator/tags`
 - `DELETE /api/v1/emulator/tags/:id`
@@ -50,6 +57,12 @@ Examples:
 - `GET /api/v1/debug/memory?includeMessages=true`
 - `GET /api/v1/debug/memory?includeMessages=true&messageLimit=200`
 
+State persistence examples:
+- `POST /api/v1/emulator/state/save`
+- `POST /api/v1/emulator/state/load`
+- `POST /api/v1/emulator/state/save` with JSON body: `{ "path": "C:/tmp/mower-state.json" }`
+- `POST /api/v1/emulator/state/load` with JSON body: `{ "path": "C:/tmp/mower-state.json" }`
+
 ## Notes
 
 - Messages are protocol envelopes compatible with app protocol v2.
@@ -57,3 +70,4 @@ Examples:
 - Scenario controls influence quality/drop/busy behavior.
 - UI lets you add/remove tags, drag tags directly on the map, drag mower position on the map, and place mower location manually.
 - Use the debug memory endpoint to inspect current in-memory state and message queue for troubleshooting.
+- Save/load endpoints persist and restore emulator scenario, mower position, path, and tags.

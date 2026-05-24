@@ -2,6 +2,7 @@ package com.kosilka.data.device.remote
 
 import com.kosilka.core.CoroutineDispatchers
 import com.kosilka.data.device.TransportModeStore
+import com.kosilka.domain.model.Point2dMm
 import java.io.BufferedReader
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
@@ -13,6 +14,8 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 @Singleton
@@ -45,6 +48,12 @@ class RemoteServiceApiClient @Inject constructor(
         val response = request("GET", "/api/v1/device/messages$query", null)
         ensureSuccess(response)
         parseMessages(response.body)
+    }
+
+    suspend fun readCurrentPosition(): Result<Point2dMm> = runCatching {
+        val response = request("GET", "/api/v1/emulator/state", null)
+        ensureSuccess(response)
+        parsePosition(response.body)
     }
 
     private suspend fun request(method: String, pathAndQuery: String, body: String?): HttpResponse =
@@ -111,6 +120,21 @@ class RemoteServiceApiClient @Inject constructor(
             }
             else -> emptyList()
         }
+    }
+
+    private fun parsePosition(body: String): Point2dMm {
+        if (body.isBlank()) {
+            throw IllegalStateException("Missing emulator state body")
+        }
+
+        val root = json.parseToJsonElement(body).jsonObject
+        val position = root["position"]?.jsonObject
+            ?: throw IllegalStateException("Missing position in emulator state")
+        val xMm = position["xMm"]?.jsonPrimitive?.intOrNull
+            ?: throw IllegalStateException("Missing xMm in emulator state")
+        val yMm = position["yMm"]?.jsonPrimitive?.intOrNull
+            ?: throw IllegalStateException("Missing yMm in emulator state")
+        return Point2dMm(xMm = xMm, yMm = yMm)
     }
 }
 

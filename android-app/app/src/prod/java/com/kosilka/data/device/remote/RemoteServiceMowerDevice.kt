@@ -7,6 +7,7 @@ import com.kosilka.data.device.protocol.Envelope
 import com.kosilka.data.device.protocol.IncomingMessage
 import com.kosilka.data.device.protocol.ProtocolDecoder
 import com.kosilka.data.device.protocol.ProtocolEncoder
+import com.kosilka.domain.model.Point2dMm
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
@@ -90,6 +91,13 @@ class RemoteServiceMowerDevice @Inject constructor(
         }
 
         return Result.success(Unit)
+    }
+
+    override suspend fun readCurrentPosition(): Result<Point2dMm> {
+        if (!connected) {
+            return Result.failure(IllegalStateException("Remote service is not connected"))
+        }
+        return apiClient.readCurrentPosition()
     }
 
     private fun startPollingLoop() {

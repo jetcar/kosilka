@@ -16,7 +16,7 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
-        buildConfigField("String", "MOWER_SERVICE_BASE_URL", "\"http://10.0.2.2:8080\"")
+        buildConfigField("String", "MOWER_SERVICE_BASE_URL", "\"http://192.168.0.129:8080\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

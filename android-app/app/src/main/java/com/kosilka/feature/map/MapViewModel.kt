@@ -24,6 +24,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlin.math.hypot
+import kotlin.math.roundToInt
 
 @HiltViewModel
 class MapViewModel @Inject constructor(
@@ -176,6 +178,15 @@ class MapViewModel @Inject constructor(
                 return@launch
             }
 
+            val mowerPosition = _uiState.value.mowerPosition
+            val vectorDxMm = mowerPosition?.let { point.xMm - it.xMm }
+            val vectorDyMm = mowerPosition?.let { point.yMm - it.yMm }
+            val distanceMm = if (vectorDxMm != null && vectorDyMm != null) {
+                hypot(vectorDxMm.toDouble(), vectorDyMm.toDouble()).roundToInt()
+            } else {
+                null
+            }
+
             when (
                 val result = moveMowerUseCase.moveTo(
                     sessionId = sessionId,
@@ -187,7 +198,63 @@ class MapViewModel @Inject constructor(
                     _uiState.update {
                         it.copy(
                             destinationMarker = point,
-                            statusMessage = null
+                            lastMoveVectorDxMm = vectorDxMm,
+                            lastMoveVectorDyMm = vectorDyMm,
+                            lastMoveDistanceMm = distanceMm,
+                            statusMessage = if (distanceMm != null) {
+                                "MOVE_TO sent: distance ${distanceMm} mm"
+                            } else {
+                                "MOVE_TO sent"
+                            }
+                        )
+                    }
+                }
+
+                MoveMowerResult.Busy -> {
+                    _uiState.update { it.copy(statusMessage = "Mower busy") }
+                }
+
+                MoveMowerResult.OutsideZone -> {
+                    _uiState.update { it.copy(statusMessage = "Outside zone") }
+                }
+
+                is MoveMowerResult.DeliveryFailed -> {
+                    _uiState.update { it.copy(statusMessage = result.reason) }
+                }
+            }
+        }
+    }
+
+    fun stopMower() {
+        viewModelScope.launch {
+            val sessionId = activeSessionId
+            if (sessionId == null) {
+                _uiState.update { it.copy(statusMessage = "Not connected") }
+                return@launch
+            }
+
+            val mowerPosition = _uiState.value.mowerPosition
+            if (mowerPosition == null) {
+                _uiState.update { it.copy(statusMessage = "Cannot stop: mower position unknown") }
+                return@launch
+            }
+
+            val holdPosition = Point2dMm(mowerPosition.xMm, mowerPosition.yMm)
+            when (
+                val result = moveMowerUseCase.moveTo(
+                    sessionId = sessionId,
+                    target = holdPosition,
+                    zone = _uiState.value.zone
+                )
+            ) {
+                MoveMowerResult.Success -> {
+                    _uiState.update {
+                        it.copy(
+                            destinationMarker = null,
+                            lastMoveVectorDxMm = 0,
+                            lastMoveVectorDyMm = 0,
+                            lastMoveDistanceMm = 0,
+                            statusMessage = "STOP sent"
                         )
                     }
                 }

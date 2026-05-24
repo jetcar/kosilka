@@ -64,13 +64,6 @@ fun HomeScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Button(
-                enabled = uiState.canConnect,
-                onClick = viewModel::connect
-            ) {
-                Text("Connect")
-            }
-
-            Button(
                 enabled = uiState.canDisconnect,
                 onClick = viewModel::disconnect
             ) {

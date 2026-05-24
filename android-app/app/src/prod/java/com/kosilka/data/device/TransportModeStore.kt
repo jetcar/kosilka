@@ -4,7 +4,6 @@ import com.kosilka.BuildConfig
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.remove
 import androidx.datastore.preferences.core.stringPreferencesKey
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -62,6 +61,6 @@ class TransportModeStore @Inject constructor(
     companion object {
         val TRANSPORT_MODE_KEY = stringPreferencesKey("transport_mode")
         val SERVICE_ENDPOINT_KEY = stringPreferencesKey("service_endpoint")
-        private const val DEFAULT_SERVICE_ENDPOINT = "http://10.0.2.2:8080"
+        private const val DEFAULT_SERVICE_ENDPOINT = "http://192.168.0.129:8080"
     }
 }

@@ -4,6 +4,7 @@ import com.kosilka.data.device.ConnectionEvent
 import com.kosilka.data.device.MowerDevice
 import com.kosilka.data.device.protocol.Envelope
 import com.kosilka.data.device.protocol.IncomingMessage
+import com.kosilka.domain.model.Point2dMm
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -32,4 +33,10 @@ class UsbMowerDevice @Inject constructor(
     }
 
     override suspend fun send(envelope: Envelope): Result<Unit> = dataSource.send(envelope)
+
+    override suspend fun readCurrentPosition(): Result<Point2dMm> {
+        return Result.failure(
+            UnsupportedOperationException("USB transport does not expose direct position feedback")
+        )
+    }
 }

@@ -5,6 +5,7 @@ const { URL } = require('url');
 
 const PORT = Number(process.env.PORT || 8080);
 const PROTOCOL_VERSION = 2;
+const STATE_FILE_PATH = process.env.EMULATOR_STATE_FILE || pathModule.join(__dirname, 'emulator-state.json');
 
 const TYPE = {
     PAIR_REQUEST: 'PAIR_REQUEST',
@@ -52,7 +53,12 @@ const state = {
     speedMmPerSec: 200
     ,
     tags: [],
-    nextTagId: 1
+    nextTagId: 1,
+    headingDeg: 0,
+    rotationSpeedDegPerSec: 90,
+    destination: null,
+    movementTimer: null,
+    commandLog: []
 };
 
 function nowMs() {
@@ -117,6 +123,114 @@ function serveUi(res) {
     }
 }
 
+function normalizePathEntry(entry) {
+    return {
+        xMm: Math.round(Number(entry.xMm) || 0),
+        yMm: Math.round(Number(entry.yMm) || 0)
+    };
+}
+
+function createPersistentStateSnapshot() {
+    return {
+        version: 1,
+        savedAtMs: nowMs(),
+        scenario: {
+            type: state.scenario.type,
+            untilMs: state.scenario.untilMs,
+            driftRateMmPerSec: state.scenario.driftRateMmPerSec
+        },
+        position: {
+            xMm: state.position.xMm,
+            yMm: state.position.yMm
+        },
+        path: state.path.map((point) => ({ ...point })),
+        pathIndex: state.pathIndex,
+        sequence: state.sequence,
+        leftoverMm: state.leftoverMm,
+        sampleRateHz: state.sampleRateHz,
+        speedMmPerSec: state.speedMmPerSec,
+        headingDeg: state.headingDeg,
+        rotationSpeedDegPerSec: state.rotationSpeedDegPerSec,
+        tags: state.tags.map((tag) => ({ ...tag })),
+        nextTagId: state.nextTagId
+    };
+}
+
+function applyPersistentStateSnapshot(snapshot) {
+    if (!snapshot || typeof snapshot !== 'object') {
+        throw new Error('Invalid state snapshot');
+    }
+
+    const nextScenario = snapshot.scenario || {};
+    const nextPosition = snapshot.position || {};
+    const nextPath = Array.isArray(snapshot.path) && snapshot.path.length >= 2
+        ? snapshot.path.map(normalizePathEntry)
+        : state.path;
+    const nextTags = Array.isArray(snapshot.tags)
+        ? snapshot.tags.map((tag, index) => ({
+            id: String(tag.id || `tag-${index + 1}`),
+            name: String(tag.name || '').trim() || `Tag ${index + 1}`,
+            xMm: Math.round(Number(tag.xMm) || 0),
+            yMm: Math.round(Number(tag.yMm) || 0)
+        }))
+        : state.tags;
+
+    stopRanging();
+
+    state.scenario = {
+        type: String(nextScenario.type || 'NORMAL').toUpperCase(),
+        untilMs: Math.max(0, Number(nextScenario.untilMs) || 0),
+        driftRateMmPerSec: Math.max(1, Number(nextScenario.driftRateMmPerSec) || 80)
+    };
+
+    state.position = {
+        xMm: Math.round(Number(nextPosition.xMm) || 0),
+        yMm: Math.round(Number(nextPosition.yMm) || 0)
+    };
+
+    state.path = nextPath;
+    state.pathIndex = Math.max(0, Math.min(state.path.length - 1, Number(snapshot.pathIndex) || 0));
+    state.sequence = Math.max(0, Number(snapshot.sequence) || 0);
+    state.leftoverMm = Math.max(0, Number(snapshot.leftoverMm) || 0);
+    state.sampleRateHz = Math.max(1, Number(snapshot.sampleRateHz) || 5);
+    state.speedMmPerSec = Math.max(1, Number(snapshot.speedMmPerSec) || 200);
+    state.headingDeg = Number.isFinite(Number(snapshot.headingDeg)) ? Number(snapshot.headingDeg) : 0;
+    state.rotationSpeedDegPerSec = Math.max(10, Number(snapshot.rotationSpeedDegPerSec) || 90);
+    state.destination = null;
+    state.tags = nextTags;
+    state.nextTagId = Math.max(
+        1,
+        Number(snapshot.nextTagId) || (nextTags.reduce((max, tag) => {
+            const parsed = Number(String(tag.id).replace(/^tag-/, ''));
+            return Number.isFinite(parsed) ? Math.max(max, parsed + 1) : max;
+        }, 1))
+    );
+}
+
+function saveStateToFile(targetPath = STATE_FILE_PATH) {
+    const content = JSON.stringify(createPersistentStateSnapshot(), null, 2);
+    fs.writeFileSync(targetPath, content, 'utf8');
+}
+
+function loadStateFromFile(targetPath = STATE_FILE_PATH) {
+    const content = fs.readFileSync(targetPath, 'utf8');
+    const snapshot = JSON.parse(content);
+    applyPersistentStateSnapshot(snapshot);
+}
+
+function tryAutoLoadState() {
+    if (!fs.existsSync(STATE_FILE_PATH)) {
+        return;
+    }
+
+    try {
+        loadStateFromFile(STATE_FILE_PATH);
+        console.log(`Loaded emulator state from ${STATE_FILE_PATH}`);
+    } catch (error) {
+        console.error(`Failed to load emulator state from ${STATE_FILE_PATH}:`, error);
+    }
+}
+
 function normalizeTagInput(body) {
     const name = String(body.name || '').trim();
     const xMm = Number(body.xMm);
@@ -134,6 +248,20 @@ function normalizeTagInput(body) {
         xMm: Math.round(xMm),
         yMm: Math.round(yMm)
     };
+}
+
+const COMMAND_LOG_MAX = 50;
+
+function logCommand(messageType, payload) {
+    const entry = {
+        atMs: Date.now(),
+        messageType,
+        payload: payload ? { ...payload } : {}
+    };
+    state.commandLog.push(entry);
+    if (state.commandLog.length > COMMAND_LOG_MAX) {
+        state.commandLog.shift();
+    }
 }
 
 function enqueueMessage(messageType, payload, sessionId = state.sessionId) {
@@ -177,6 +305,87 @@ function distance(a, b) {
     return Math.hypot(dx, dy);
 }
 
+function normalizeAngleDeg(angle) {
+    let a = angle % 360;
+    if (a > 180) a -= 360;
+    if (a < -180) a += 360;
+    return a;
+}
+
+function stepTowardDestination(intervalMs) {
+    if (!state.destination) {
+        return false;
+    }
+    const dest = state.destination;
+    const dx = dest.xMm - state.position.xMm;
+    const dy = dest.yMm - state.position.yMm;
+    const dist = Math.hypot(dx, dy);
+
+    const ARRIVAL_THRESHOLD_MM = 15;
+    if (dist <= ARRIVAL_THRESHOLD_MM) {
+        state.position = { xMm: Math.round(dest.xMm), yMm: Math.round(dest.yMm) };
+        state.destination = null;
+        return true;
+    }
+
+    const targetAngleDeg = Math.atan2(dy, dx) * 180 / Math.PI;
+    const angleDiff = normalizeAngleDeg(targetAngleDeg - state.headingDeg);
+    const maxRotation = state.rotationSpeedDegPerSec * (intervalMs / 1000);
+    const rotation = Math.max(-maxRotation, Math.min(maxRotation, angleDiff));
+    state.headingDeg = normalizeAngleDeg(state.headingDeg + rotation);
+
+    const ALIGNMENT_THRESHOLD_DEG = 10;
+    if (Math.abs(angleDiff) <= ALIGNMENT_THRESHOLD_DEG) {
+        const moveDist = Math.min(state.speedMmPerSec * (intervalMs / 1000), dist);
+        const headingRad = state.headingDeg * Math.PI / 180;
+        state.position = {
+            xMm: Math.round(state.position.xMm + Math.cos(headingRad) * moveDist),
+            yMm: Math.round(state.position.yMm + Math.sin(headingRad) * moveDist)
+        };
+    }
+    return true;
+}
+
+const MOVEMENT_TICK_MS = 50;
+
+function movementTick() {
+    const scenario = currentScenarioType();
+    if (scenario === 'STUCK') {
+        return;
+    }
+
+    const previous = { xMm: state.position.xMm, yMm: state.position.yMm };
+
+    if (state.destination) {
+        stepTowardDestination(MOVEMENT_TICK_MS);
+    }
+
+    if (state.position.xMm !== previous.xMm || state.position.yMm !== previous.yMm) {
+        enqueueMessage(TYPE.COVERAGE_UPDATE, {
+            segments: [{
+                fromXMm: previous.xMm,
+                fromYMm: previous.yMm,
+                toXMm: state.position.xMm,
+                toYMm: state.position.yMm
+            }]
+        });
+    }
+}
+
+function startMovementLoop() {
+    if (state.movementTimer) {
+        return;
+    }
+    state.movementTimer = setInterval(movementTick, MOVEMENT_TICK_MS);
+}
+
+function stopMovementLoop() {
+    if (state.movementTimer) {
+        clearInterval(state.movementTimer);
+        state.movementTimer = null;
+    }
+}
+
 function advancePosition(distanceMm) {
     if (state.path.length < 2 || distanceMm <= 0) {
         return;
@@ -218,35 +427,11 @@ function advancePosition(distanceMm) {
 
 function emitRangingAndCoverageTick(intervalMs) {
     const scenario = currentScenarioType();
-    const frozen = scenario === 'STUCK';
     const signalLost = scenario === 'SIGNAL_LOSS';
     const interfered = scenario === 'SIGNAL_INTERFERENCE';
     const busy = scenario === 'BUSY';
 
-    if (!frozen) {
-        const mm = state.speedMmPerSec * (intervalMs / 1000);
-        const previous = { ...state.position };
-        advancePosition(mm);
-
-        if (state.position.xMm !== previous.xMm || state.position.yMm !== previous.yMm) {
-            enqueueMessage(TYPE.COVERAGE_UPDATE, {
-                segments: [
-                    {
-                        fromXMm: previous.xMm,
-                        fromYMm: previous.yMm,
-                        toXMm: state.position.xMm,
-                        toYMm: state.position.yMm
-                    }
-                ]
-            });
-        }
-    }
-
-    if (signalLost) {
-        return;
-    }
-
-    if (busy) {
+    if (signalLost || busy) {
         return;
     }
 
@@ -377,20 +562,36 @@ async function handleRequest(req, res) {
         const incomingSessionId = envelope.sessionId || state.sessionId;
 
         if (messageType === TYPE.PAIR_REQUEST) {
+            logCommand(messageType, payload);
             enqueueMessage(TYPE.PAIR_RESPONSE, {
                 accepted: true,
                 deviceInstanceId: 'rest-emulator-1'
             }, incomingSessionId);
         } else if (messageType === TYPE.SESSION_START) {
+            logCommand(messageType, payload);
             state.sessionId = incomingSessionId || state.sessionId;
             enqueueMessage(TYPE.SESSION_ACK, { ok: true }, state.sessionId);
         } else if (messageType === TYPE.HEARTBEAT) {
+            // heartbeats are not logged to avoid noise
             enqueueMessage(TYPE.HEARTBEAT, { status: 'ok' }, state.sessionId);
         } else if (messageType === TYPE.RANGING_START) {
+            logCommand(messageType, payload);
             startRanging(payload.sampleRateHz);
         } else if (messageType === TYPE.RANGING_STOP) {
+            logCommand(messageType, payload);
             stopRanging();
+        } else if (messageType === TYPE.MOVE_TO && currentScenarioType() !== 'BUSY') {
+            logCommand(messageType, payload);
+            const targetXMm = Number(payload.targetXMm);
+            const targetYMm = Number(payload.targetYMm);
+            if (Number.isFinite(targetXMm) && Number.isFinite(targetYMm)) {
+                state.destination = {
+                    xMm: Math.max(0, Math.round(targetXMm)),
+                    yMm: Math.max(0, Math.round(targetYMm))
+                };
+            }
         } else if (messageType === TYPE.MOVE_TO && currentScenarioType() === 'BUSY') {
+            logCommand(messageType, payload);
             enqueueMessage(TYPE.ERROR, {
                 code: ERR.BUSY,
                 name: 'ERR_BUSY',
@@ -417,9 +618,36 @@ async function handleRequest(req, res) {
         sendJson(res, 200, {
             activeScenario: currentScenarioType(),
             position: { ...state.position },
+            headingDeg: state.headingDeg,
+            destination: state.destination ? { ...state.destination } : null,
+            speedMmPerSec: state.speedMmPerSec,
+            rotationSpeedDegPerSec: state.rotationSpeedDegPerSec,
             connected: state.connected,
             sessionId: state.sessionId,
-            tags: [...state.tags]
+            tags: [...state.tags],
+            commandLog: [...state.commandLog]
+        });
+        return;
+    }
+
+    if (req.method === 'POST' && path === '/api/v1/emulator/state/save') {
+        const body = await readJson(req);
+        const targetPath = body.path ? String(body.path) : STATE_FILE_PATH;
+        saveStateToFile(targetPath);
+        sendJson(res, 200, { ok: true, path: targetPath });
+        return;
+    }
+
+    if (req.method === 'POST' && path === '/api/v1/emulator/state/load') {
+        const body = await readJson(req);
+        const targetPath = body.path ? String(body.path) : STATE_FILE_PATH;
+        loadStateFromFile(targetPath);
+        sendJson(res, 200, {
+            ok: true,
+            path: targetPath,
+            position: { ...state.position },
+            tags: [...state.tags],
+            activeScenario: currentScenarioType()
         });
         return;
     }
@@ -509,9 +737,37 @@ async function handleRequest(req, res) {
         return;
     }
 
+    if (req.method === 'DELETE' && path === '/api/v1/emulator/command-log') {
+        state.commandLog = [];
+        sendJson(res, 200, { ok: true });
+        return;
+    }
+
+    if (req.method === 'POST' && path === '/api/v1/emulator/navigation/stop') {
+        state.destination = null;
+        sendJson(res, 200, { ok: true, destination: null });
+        return;
+    }
+
     if (req.method === 'POST' && path === '/api/v1/emulator/scenario/clear') {
         state.scenario = { type: 'NORMAL', untilMs: 0, driftRateMmPerSec: 80 };
         sendJson(res, 200, { ok: true });
+        return;
+    }
+
+    if (req.method === 'PUT' && path === '/api/v1/emulator/settings') {
+        const body = await readJson(req);
+        if (Number.isFinite(Number(body.speedMmPerSec))) {
+            state.speedMmPerSec = Math.max(10, Math.min(5000, Math.round(Number(body.speedMmPerSec))));
+        }
+        if (Number.isFinite(Number(body.rotationSpeedDegPerSec))) {
+            state.rotationSpeedDegPerSec = Math.max(10, Math.min(3600, Math.round(Number(body.rotationSpeedDegPerSec))));
+        }
+        sendJson(res, 200, {
+            ok: true,
+            speedMmPerSec: state.speedMmPerSec,
+            rotationSpeedDegPerSec: state.rotationSpeedDegPerSec
+        });
         return;
     }
 
@@ -526,6 +782,9 @@ const server = http.createServer((req, res) => {
         });
     });
 });
+
+tryAutoLoadState();
+startMovementLoop();
 
 server.listen(PORT, () => {
     console.log(`Emulator REST service listening on http://0.0.0.0:${PORT}`);

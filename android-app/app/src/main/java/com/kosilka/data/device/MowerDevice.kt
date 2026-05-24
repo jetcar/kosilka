@@ -2,6 +2,7 @@ package com.kosilka.data.device
 
 import com.kosilka.data.device.protocol.Envelope
 import com.kosilka.data.device.protocol.IncomingMessage
+import com.kosilka.domain.model.Point2dMm
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -34,4 +35,10 @@ interface MowerDevice {
      * Returns [Result.success] on delivery, [Result.failure] on transport error.
      */
     suspend fun send(envelope: Envelope): Result<Unit>
+
+    /**
+     * Read current mower position from transport feedback, when available.
+     * Some transports (like USB firmware-only mode) may not support this operation.
+     */
+    suspend fun readCurrentPosition(): Result<Point2dMm>
 }

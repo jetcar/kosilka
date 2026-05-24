@@ -4,6 +4,7 @@ import com.kosilka.data.device.protocol.Envelope
 import com.kosilka.data.device.protocol.IncomingMessage
 import com.kosilka.data.device.remote.RemoteServiceMowerDevice
 import com.kosilka.data.device.usb.UsbMowerDevice
+import com.kosilka.domain.model.Point2dMm
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -34,6 +35,8 @@ class DelegatingMowerDevice @Inject constructor(
     }
 
     override suspend fun send(envelope: Envelope): Result<Unit> = activeDevice().send(envelope)
+
+    override suspend fun readCurrentPosition(): Result<Point2dMm> = activeDevice().readCurrentPosition()
 
     private suspend fun activeDevice(): MowerDevice = activeDeviceForMode(transportModeStore.currentMode())
 

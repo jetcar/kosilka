@@ -1,5 +1,6 @@
 package com.kosilka.domain.usecase
 
+import android.util.Log
 import com.kosilka.core.CoroutineDispatchers
 import com.kosilka.core.MessageIdGenerator
 import com.kosilka.data.device.MowerDevice
@@ -28,6 +29,7 @@ class MoveMowerUseCase @Inject constructor(
         zone: Zone?
     ): MoveMowerResult {
         if (zone != null && !isInsidePolygon(target, zone.vertices)) {
+            Log.w(TAG, "MOVE_TO blocked by zone: x=${target.xMm}, y=${target.yMm}, session=$sessionId")
             return MoveMowerResult.OutsideZone
         }
 
@@ -35,6 +37,10 @@ class MoveMowerUseCase @Inject constructor(
 
         repeat(3) {
             val messageId = messageIdGenerator.next()
+            Log.i(
+                TAG,
+                "MOVE_TO send attempt=${it + 1} messageId=$messageId session=$sessionId x=${target.xMm} y=${target.yMm}"
+            )
             val sendResult = mowerDevice.send(
                 Envelope(
                     protocolVersion = ProtocolConstants.SUPPORTED_VERSION,
@@ -51,6 +57,7 @@ class MoveMowerUseCase @Inject constructor(
 
             if (sendResult.isFailure) {
                 lastFailure = sendResult.exceptionOrNull()
+                Log.w(TAG, "MOVE_TO send failed messageId=$messageId reason=${lastFailure?.message}")
                 delay(250L)
                 return@repeat
             }
@@ -62,12 +69,15 @@ class MoveMowerUseCase @Inject constructor(
             }
 
             if (error?.code == ProtocolConstants.ERR_BUSY) {
+                Log.w(TAG, "MOVE_TO busy messageId=$messageId session=$sessionId")
                 return MoveMowerResult.Busy
             }
 
+            Log.i(TAG, "MOVE_TO accepted messageId=$messageId session=$sessionId")
             return MoveMowerResult.Success
         }
 
+        Log.e(TAG, "MOVE_TO delivery failed after retries session=$sessionId x=${target.xMm} y=${target.yMm}")
         return MoveMowerResult.DeliveryFailed(lastFailure?.message ?: "MOVE_TO delivery failed")
     }
 
@@ -96,6 +106,10 @@ class MoveMowerUseCase @Inject constructor(
         }
 
         return inside
+    }
+
+    private companion object {
+        const val TAG = "MoveMowerUseCase"
     }
 }
 
