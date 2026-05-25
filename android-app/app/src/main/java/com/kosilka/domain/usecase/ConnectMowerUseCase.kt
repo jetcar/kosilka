@@ -33,9 +33,6 @@ class ConnectMowerUseCase @Inject constructor(
     private val dispatchers: CoroutineDispatchers,
     private val uiEventBus: UiEventBus
 ) {
-    private companion object {
-        const val TAG = "ConnectMowerUseCase"
-    }
     private val scope = CoroutineScope(SupervisorJob() + dispatchers.io)
 
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
@@ -75,6 +72,23 @@ class ConnectMowerUseCase @Inject constructor(
         messageIdGenerator.reset()
         clearChannels()
 
+        val startedAt = nowMs()
+        val completed = withTimeoutOrNull(CONNECT_ATTEMPT_TIMEOUT_MS) {
+            performHandshake()
+        }
+
+        if (completed == null && _connectionState.value is ConnectionState.Connecting) {
+            Log.e(TAG, "connect: timed out after ${CONNECT_ATTEMPT_TIMEOUT_MS}ms")
+            _connectionState.value = ConnectionState.Failed("Connect timeout (${CONNECT_ATTEMPT_TIMEOUT_MS}ms)")
+            safeDisconnectInternal()
+            return
+        }
+
+        val elapsedMs = nowMs() - startedAt
+        Log.i(TAG, "connect: finished state=${_connectionState.value} elapsedMs=$elapsedMs")
+    }
+
+    private suspend fun performHandshake() {
         val transportConnect = mowerDevice.connect()
         if (transportConnect.isFailure) {
             val reason = transportConnect.exceptionOrNull()?.message ?: "Failed to open mower transport"
@@ -390,5 +404,10 @@ class ConnectMowerUseCase @Inject constructor(
         Acked,
         Unauthorized,
         Timeout
+    }
+
+    private companion object {
+        const val TAG = "ConnectMowerUseCase"
+        const val CONNECT_ATTEMPT_TIMEOUT_MS = 3_000L
     }
 }

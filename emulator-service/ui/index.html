@@ -170,6 +170,15 @@
             width: 100%;
         }
 
+        select {
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 8px;
+            font-size: 14px;
+            width: 100%;
+            background: #fff;
+        }
+
         button {
             border: 1px solid var(--accent);
             background: var(--accent);
@@ -221,6 +230,38 @@
 
         .tag-item:last-child {
             border-bottom: none;
+        }
+
+        .zone-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px dashed var(--line);
+            padding: 6px 0;
+            gap: 8px;
+            font-size: 13px;
+        }
+
+        .zone-item:last-child {
+            border-bottom: none;
+        }
+
+        .badge {
+            display: inline-block;
+            font-size: 11px;
+            line-height: 1;
+            padding: 4px 6px;
+            border-radius: 999px;
+            color: #fff;
+            margin-left: 6px;
+        }
+
+        .badge-available {
+            background: #1565c0;
+        }
+
+        .badge-no-go {
+            background: #c62828;
         }
 
         @media (max-width: 1000px) {
@@ -278,6 +319,45 @@
             </div>
 
             <div class="panel stack">
+                <h2>Zones</h2>
+                <div class="row">
+                    <label>
+                        Type
+                        <select id="zoneType">
+                            <option value="AVAILABLE">Available</option>
+                            <option value="NO_GO">No-Go</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="row">
+                    <label>
+                        Center X (mm)
+                        <input id="zoneCenterX" type="number" value="2000" />
+                    </label>
+                    <label>
+                        Center Y (mm)
+                        <input id="zoneCenterY" type="number" value="2000" />
+                    </label>
+                </div>
+                <div class="row">
+                    <label>
+                        Width (mm)
+                        <input id="zoneWidth" type="number" value="1200" min="100" max="6000" />
+                    </label>
+                    <label>
+                        Height (mm)
+                        <input id="zoneHeight" type="number" value="900" min="100" max="4500" />
+                    </label>
+                </div>
+                <div class="row">
+                    <button id="addZoneBtn">Add Zone</button>
+                    <button id="clearZonesBtn" class="danger">Clear Zones</button>
+                </div>
+                <div class="muted">Tip: click map to fill zone center X/Y quickly.</div>
+                <div id="zoneList" class="tag-list"></div>
+            </div>
+
+            <div class="panel stack">
                 <h2>Tags</h2>
                 <div id="tagList" class="tag-list"></div>
             </div>
@@ -317,12 +397,20 @@
         const statusLine = document.getElementById('statusLine');
         const positionLine = document.getElementById('positionLine');
         const tagList = document.getElementById('tagList');
+        const zoneList = document.getElementById('zoneList');
 
         const tagName = document.getElementById('tagName');
         const tagX = document.getElementById('tagX');
         const tagY = document.getElementById('tagY');
         const addTagBtn = document.getElementById('addTagBtn');
         const clearTagsBtn = document.getElementById('clearTagsBtn');
+        const zoneTypeInput = document.getElementById('zoneType');
+        const zoneCenterXInput = document.getElementById('zoneCenterX');
+        const zoneCenterYInput = document.getElementById('zoneCenterY');
+        const zoneWidthInput = document.getElementById('zoneWidth');
+        const zoneHeightInput = document.getElementById('zoneHeight');
+        const addZoneBtn = document.getElementById('addZoneBtn');
+        const clearZonesBtn = document.getElementById('clearZonesBtn');
 
         const world = {
             minX: 0,
@@ -342,6 +430,14 @@
         };
 
         let tags = [];
+        let zones = [];
+        let selectedZoneId = null;
+        let draggingZoneId = null;
+        let draggingZoneHandleIndex = null;
+        let zoneDragMode = null;
+        let isDraggingZone = false;
+        let zoneDragMoved = false;
+        let lastZoneDragMapPoint = null;
         let draggingTagId = null;
         let isDraggingTag = false;
         let isDraggingMower = false;
@@ -410,6 +506,138 @@
             const dx = point.x - screen.x;
             const dy = point.y - screen.y;
             return Math.hypot(dx, dy) <= thresholdPx;
+        }
+
+        function findZoneHandleNearPoint(point, thresholdPx) {
+            for (let zoneIndex = zones.length - 1; zoneIndex >= 0; zoneIndex -= 1) {
+                const zone = zones[zoneIndex];
+                if (!Array.isArray(zone.vertices)) {
+                    continue;
+                }
+                for (let handleIndex = 0; handleIndex < zone.vertices.length; handleIndex += 1) {
+                    const screen = mapToScreen(zone.vertices[handleIndex]);
+                    const dx = point.x - screen.x;
+                    const dy = point.y - screen.y;
+                    if (Math.hypot(dx, dy) <= thresholdPx) {
+                        return { zone, handleIndex };
+                    }
+                }
+            }
+            return null;
+        }
+
+        function isPointInPolygon(point, vertices) {
+            let inside = false;
+            let j = vertices.length - 1;
+            for (let i = 0; i < vertices.length; i += 1) {
+                const xi = vertices[i].xMm;
+                const yi = vertices[i].yMm;
+                const xj = vertices[j].xMm;
+                const yj = vertices[j].yMm;
+                const intersects = ((yi > point.yMm) !== (yj > point.yMm))
+                    && (point.xMm < ((xj - xi) * (point.yMm - yi)) / ((yj - yi) || 1) + xi);
+                if (intersects) {
+                    inside = !inside;
+                }
+                j = i;
+            }
+            return inside;
+        }
+
+        function findZoneAtMapPoint(mapPoint) {
+            for (let zoneIndex = zones.length - 1; zoneIndex >= 0; zoneIndex -= 1) {
+                const zone = zones[zoneIndex];
+                if (!Array.isArray(zone.vertices) || zone.vertices.length < 3) {
+                    continue;
+                }
+                if (isPointInPolygon(mapPoint, zone.vertices)) {
+                    return zone;
+                }
+            }
+            return null;
+        }
+
+        function moveDraggedZone(clientX, clientY) {
+            if (!isDraggingZone || !draggingZoneId) {
+                return;
+            }
+
+            const currentMapPoint = screenToMap(clientX, clientY);
+            const zone = zones.find((candidate) => candidate.id === draggingZoneId);
+            if (!zone || !Array.isArray(zone.vertices)) {
+                return;
+            }
+
+            if (zoneDragMode === 'handle' && draggingZoneHandleIndex !== null) {
+                const clampedPoint = clampToWorld(currentMapPoint);
+                const previous = zone.vertices[draggingZoneHandleIndex];
+                if (!previous || previous.xMm !== clampedPoint.xMm || previous.yMm !== clampedPoint.yMm) {
+                    zoneDragMoved = true;
+                }
+                zone.vertices[draggingZoneHandleIndex] = clampedPoint;
+                zoneCenterXInput.value = clampedPoint.xMm;
+                zoneCenterYInput.value = clampedPoint.yMm;
+                renderMap();
+                return;
+            }
+
+            const previousPoint = lastZoneDragMapPoint;
+            if (!previousPoint) {
+                lastZoneDragMapPoint = currentMapPoint;
+                return;
+            }
+
+            const deltaX = currentMapPoint.xMm - previousPoint.xMm;
+            const deltaY = currentMapPoint.yMm - previousPoint.yMm;
+            if (deltaX === 0 && deltaY === 0) {
+                return;
+            }
+
+            const shifted = zone.vertices.map((vertex) => clampToWorld({
+                xMm: vertex.xMm + deltaX,
+                yMm: vertex.yMm + deltaY
+            }));
+
+            const changed = shifted.some((vertex, index) => {
+                const previous = zone.vertices[index];
+                return !previous || previous.xMm !== vertex.xMm || previous.yMm !== vertex.yMm;
+            });
+
+            if (changed) {
+                zone.vertices = shifted;
+                zoneDragMoved = true;
+                const centerX = Math.round(shifted.reduce((sum, vertex) => sum + vertex.xMm, 0) / shifted.length);
+                const centerY = Math.round(shifted.reduce((sum, vertex) => sum + vertex.yMm, 0) / shifted.length);
+                zoneCenterXInput.value = centerX;
+                zoneCenterYInput.value = centerY;
+                renderMap();
+            }
+
+            lastZoneDragMapPoint = currentMapPoint;
+        }
+
+        async function persistDraggedZone() {
+            if (!draggingZoneId || !zoneDragMoved) {
+                return;
+            }
+
+            const zone = zones.find((candidate) => candidate.id === draggingZoneId);
+            if (!zone) {
+                return;
+            }
+
+            const response = await fetch(`/api/v1/emulator/zones/${encodeURIComponent(zone.id)}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    areaType: zone.areaType,
+                    vertices: zone.vertices
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to persist zone');
+            }
         }
 
         function moveDraggedTag(clientX, clientY) {
@@ -518,6 +746,46 @@
                 mapCtx.lineTo(p1.x, p1.y);
                 mapCtx.stroke();
             }
+        }
+
+        function drawZones() {
+            for (const zone of zones) {
+                if (!Array.isArray(zone.vertices) || zone.vertices.length < 3) {
+                    continue;
+                }
+
+                const points = zone.vertices.map((vertex) => mapToScreen(vertex));
+                const isNoGo = String(zone.areaType || '').toUpperCase() === 'NO_GO';
+                const isSelected = zone.id === selectedZoneId;
+                const isDragging = zone.id === draggingZoneId;
+
+                mapCtx.beginPath();
+                mapCtx.moveTo(points[0].x, points[0].y);
+                for (let i = 1; i < points.length; i += 1) {
+                    mapCtx.lineTo(points[i].x, points[i].y);
+                }
+                mapCtx.closePath();
+
+                mapCtx.fillStyle = isNoGo
+                    ? (isSelected || isDragging ? 'rgba(211,47,47,0.34)' : 'rgba(211,47,47,0.24)')
+                    : (isSelected || isDragging ? 'rgba(25,118,210,0.30)' : 'rgba(25,118,210,0.20)');
+                mapCtx.fill();
+
+                mapCtx.strokeStyle = isNoGo ? '#b71c1c' : '#0d47a1';
+                mapCtx.lineWidth = (isSelected || isDragging) ? 3 : 2;
+                mapCtx.stroke();
+
+                for (let index = 0; index < points.length; index += 1) {
+                    const point = points[index];
+                    const isActiveHandle = isDragging && zoneDragMode === 'handle' && draggingZoneHandleIndex === index;
+                    mapCtx.beginPath();
+                    mapCtx.arc(point.x, point.y, isActiveHandle ? 8 : (isSelected ? 7 : 5), 0, Math.PI * 2);
+                    mapCtx.fillStyle = isNoGo ? '#c62828' : '#1565c0';
+                    mapCtx.fill();
+                }
+            }
+
+            mapCtx.lineWidth = 1;
         }
 
         function drawTags() {
@@ -668,6 +936,7 @@
 
         function renderMap() {
             drawGrid();
+            drawZones();
             drawTags();
             drawDestination();
             drawMower();
@@ -682,8 +951,14 @@
                     ...serverState,
                     position: latestState.position || serverState.position
                 };
+            } else if (isDraggingZone) {
+                latestState = serverState;
             } else {
                 latestState = serverState;
+                zones = Array.isArray(latestState.zones) ? latestState.zones : [];
+                if (selectedZoneId && !zones.some((zone) => zone.id === selectedZoneId)) {
+                    selectedZoneId = null;
+                }
             }
             statusLine.textContent = `Connected: ${latestState.connected} | Scenario: ${latestState.activeScenario}`;
             positionLine.textContent = `Position: x=${latestState.position.xMm} mm, y=${latestState.position.yMm} mm  |  Heading: ${Math.round(latestState.headingDeg || 0)}°`;
@@ -692,6 +967,7 @@
             if (speedInput && !speedInput.matches(':focus')) speedInput.value = latestState.speedMmPerSec || 200;
             if (rotSpeedInput && !rotSpeedInput.matches(':focus')) rotSpeedInput.value = latestState.rotationSpeedDegPerSec || 90;
             renderCommandLog(latestState.commandLog || []);
+            renderZoneList();
             renderMap();
         }
 
@@ -740,6 +1016,93 @@
             tags = payload.tags || [];
             renderTagList();
             renderMap();
+        }
+
+        function toRectangleVertices(center, widthMm, heightMm) {
+            const halfWidth = Math.round(widthMm / 2);
+            const halfHeight = Math.round(heightMm / 2);
+            const topLeft = clampToWorld({ xMm: center.xMm - halfWidth, yMm: center.yMm - halfHeight });
+            const topRight = clampToWorld({ xMm: center.xMm + halfWidth, yMm: center.yMm - halfHeight });
+            const bottomRight = clampToWorld({ xMm: center.xMm + halfWidth, yMm: center.yMm + halfHeight });
+            const bottomLeft = clampToWorld({ xMm: center.xMm - halfWidth, yMm: center.yMm + halfHeight });
+            return [topLeft, topRight, bottomRight, bottomLeft];
+        }
+
+        function renderZoneList() {
+            zoneList.innerHTML = '';
+
+            if (!zones.length) {
+                const empty = document.createElement('div');
+                empty.className = 'muted';
+                empty.textContent = 'No zones yet.';
+                zoneList.appendChild(empty);
+                return;
+            }
+
+            for (const zone of zones) {
+                const row = document.createElement('div');
+                row.className = 'zone-item';
+                if (zone.id === selectedZoneId) {
+                    row.style.background = '#edf4ff';
+                }
+
+                const text = document.createElement('div');
+                const areaType = String(zone.areaType || 'AVAILABLE').toUpperCase();
+                const badgeClass = areaType === 'NO_GO' ? 'badge badge-no-go' : 'badge badge-available';
+                text.innerHTML = `${zone.id}<span class="${badgeClass}">${areaType}</span>`;
+
+                row.addEventListener('click', () => {
+                    selectedZoneId = zone.id;
+                    renderZoneList();
+                    renderMap();
+                });
+
+                const removeBtn = document.createElement('button');
+                removeBtn.className = 'danger';
+                removeBtn.textContent = 'Delete';
+                removeBtn.addEventListener('click', async () => {
+                    await fetch(`/api/v1/emulator/zones/${encodeURIComponent(zone.id)}`, { method: 'DELETE' });
+                    await refresh();
+                });
+
+                row.appendChild(text);
+                row.appendChild(removeBtn);
+                zoneList.appendChild(row);
+            }
+        }
+
+        async function addZone() {
+            const center = clampToWorld({
+                xMm: Number(zoneCenterXInput.value),
+                yMm: Number(zoneCenterYInput.value)
+            });
+            const widthMm = Math.max(100, Math.min(6000, Number(zoneWidthInput.value) || 1200));
+            const heightMm = Math.max(100, Math.min(4500, Number(zoneHeightInput.value) || 900));
+            const areaType = String(zoneTypeInput.value || 'AVAILABLE').toUpperCase();
+            const vertices = toRectangleVertices(center, widthMm, heightMm);
+
+            const response = await fetch('/api/v1/emulator/zones', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ areaType, vertices })
+            });
+
+            if (!response.ok) {
+                const error = await response.json().catch(() => ({}));
+                alert(error.error || error.detail || 'Failed to add zone');
+                return;
+            }
+
+            await refresh();
+        }
+
+        async function clearZones() {
+            const response = await fetch('/api/v1/emulator/zones', { method: 'DELETE' });
+            if (!response.ok) {
+                alert('Failed to clear zones');
+                return;
+            }
+            await refresh();
         }
 
         function renderTagList() {
@@ -817,6 +1180,36 @@
             const raw = getCanvasPointFromEvent(event);
             const mapPoint = screenToMap(raw.clientX, raw.clientY);
             const screenPoint = mapToScreen(mapPoint);
+
+            const handleHit = findZoneHandleNearPoint(screenPoint, 14);
+            if (handleHit) {
+                selectedZoneId = handleHit.zone.id;
+                draggingZoneId = handleHit.zone.id;
+                draggingZoneHandleIndex = handleHit.handleIndex;
+                zoneDragMode = 'handle';
+                isDraggingZone = true;
+                zoneDragMoved = false;
+                lastZoneDragMapPoint = mapPoint;
+                mapCanvas.style.cursor = 'grabbing';
+                moveDraggedZone(raw.clientX, raw.clientY);
+                renderZoneList();
+                return;
+            }
+
+            const hitZone = findZoneAtMapPoint(mapPoint);
+            if (hitZone) {
+                selectedZoneId = hitZone.id;
+                draggingZoneId = hitZone.id;
+                draggingZoneHandleIndex = null;
+                zoneDragMode = 'move';
+                isDraggingZone = true;
+                zoneDragMoved = false;
+                lastZoneDragMapPoint = mapPoint;
+                mapCanvas.style.cursor = 'grabbing';
+                renderZoneList();
+                return;
+            }
+
             const hitTag = findTagNearPoint(screenPoint, 16);
             if (hitTag) {
                 draggingTagId = hitTag.id;
@@ -840,6 +1233,10 @@
 
         mapCanvas.addEventListener('mousemove', (event) => {
             const raw = getCanvasPointFromEvent(event);
+            if (isDraggingZone) {
+                moveDraggedZone(raw.clientX, raw.clientY);
+                return;
+            }
             if (isDraggingTag) {
                 moveDraggedTag(raw.clientX, raw.clientY);
                 return;
@@ -851,6 +1248,14 @@
 
             const mapPoint = screenToMap(raw.clientX, raw.clientY);
             const screenPoint = mapToScreen(mapPoint);
+            if (findZoneHandleNearPoint(screenPoint, 14)) {
+                mapCanvas.style.cursor = 'pointer';
+                return;
+            }
+            if (findZoneAtMapPoint(mapPoint)) {
+                mapCanvas.style.cursor = 'grab';
+                return;
+            }
             if (findTagNearPoint(screenPoint, 16) || findMowerNearPoint(screenPoint, 20)) {
                 mapCanvas.style.cursor = 'grab';
                 return;
@@ -859,6 +1264,25 @@
         });
 
         mapCanvas.addEventListener('mouseleave', async () => {
+            if (isDraggingZone) {
+                isDraggingZone = false;
+                mapCanvas.style.cursor = 'crosshair';
+                try {
+                    await persistDraggedZone();
+                } catch (error) {
+                    alert(error.message);
+                } finally {
+                    draggingZoneId = null;
+                    draggingZoneHandleIndex = null;
+                    zoneDragMode = null;
+                    zoneDragMoved = false;
+                    lastZoneDragMapPoint = null;
+                    renderZoneList();
+                    renderMap();
+                }
+                return;
+            }
+
             if (isDraggingTag) {
                 isDraggingTag = false;
                 mapCanvas.style.cursor = 'crosshair';
@@ -894,6 +1318,25 @@
             const raw = getCanvasPointFromEvent(event);
             const mapPoint = screenToMap(raw.clientX, raw.clientY);
 
+            if (isDraggingZone) {
+                isDraggingZone = false;
+                mapCanvas.style.cursor = 'crosshair';
+                try {
+                    await persistDraggedZone();
+                } catch (error) {
+                    alert(error.message);
+                } finally {
+                    draggingZoneId = null;
+                    draggingZoneHandleIndex = null;
+                    zoneDragMode = null;
+                    zoneDragMoved = false;
+                    lastZoneDragMapPoint = null;
+                    renderZoneList();
+                    renderMap();
+                }
+                return;
+            }
+
             if (isDraggingTag) {
                 isDraggingTag = false;
                 mapCanvas.style.cursor = 'crosshair';
@@ -925,12 +1368,44 @@
 
             tagX.value = mapPoint.xMm;
             tagY.value = mapPoint.yMm;
+            zoneCenterXInput.value = mapPoint.xMm;
+            zoneCenterYInput.value = mapPoint.yMm;
         });
 
         mapCanvas.addEventListener('touchstart', (event) => {
             const raw = getCanvasPointFromEvent(event);
             const mapPoint = screenToMap(raw.clientX, raw.clientY);
             const screenPoint = mapToScreen(mapPoint);
+
+            const handleHit = findZoneHandleNearPoint(screenPoint, 18);
+            if (handleHit) {
+                event.preventDefault();
+                selectedZoneId = handleHit.zone.id;
+                draggingZoneId = handleHit.zone.id;
+                draggingZoneHandleIndex = handleHit.handleIndex;
+                zoneDragMode = 'handle';
+                isDraggingZone = true;
+                zoneDragMoved = false;
+                lastZoneDragMapPoint = mapPoint;
+                moveDraggedZone(raw.clientX, raw.clientY);
+                renderZoneList();
+                return;
+            }
+
+            const hitZone = findZoneAtMapPoint(mapPoint);
+            if (hitZone) {
+                event.preventDefault();
+                selectedZoneId = hitZone.id;
+                draggingZoneId = hitZone.id;
+                draggingZoneHandleIndex = null;
+                zoneDragMode = 'move';
+                isDraggingZone = true;
+                zoneDragMoved = false;
+                lastZoneDragMapPoint = mapPoint;
+                renderZoneList();
+                return;
+            }
+
             const hitTag = findTagNearPoint(screenPoint, 18);
             if (hitTag) {
                 event.preventDefault();
@@ -953,6 +1428,13 @@
         }, { passive: false });
 
         mapCanvas.addEventListener('touchmove', (event) => {
+            if (isDraggingZone) {
+                event.preventDefault();
+                const raw = getCanvasPointFromEvent(event);
+                moveDraggedZone(raw.clientX, raw.clientY);
+                return;
+            }
+
             if (isDraggingTag) {
                 event.preventDefault();
                 const raw = getCanvasPointFromEvent(event);
@@ -970,6 +1452,24 @@
         }, { passive: false });
 
         mapCanvas.addEventListener('touchend', async () => {
+            if (isDraggingZone) {
+                isDraggingZone = false;
+                try {
+                    await persistDraggedZone();
+                } catch (error) {
+                    alert(error.message);
+                } finally {
+                    draggingZoneId = null;
+                    draggingZoneHandleIndex = null;
+                    zoneDragMode = null;
+                    zoneDragMoved = false;
+                    lastZoneDragMapPoint = null;
+                    renderZoneList();
+                    renderMap();
+                }
+                return;
+            }
+
             if (isDraggingTag) {
                 isDraggingTag = false;
                 try {
@@ -1017,6 +1517,8 @@
 
         addTagBtn.addEventListener('click', () => addTag().catch((error) => alert(error.message)));
         clearTagsBtn.addEventListener('click', () => clearTags().catch((error) => alert(error.message)));
+        addZoneBtn.addEventListener('click', () => addZone().catch((error) => alert(error.message)));
+        clearZonesBtn.addEventListener('click', () => clearZones().catch((error) => alert(error.message)));
         document.getElementById('applyPhysicsBtn').addEventListener('click', () => applyPhysics().catch((error) => alert(error.message)));
         document.getElementById('clearCommandLogBtn').addEventListener('click', () => {
             lastRenderedCommandCount = 0;

@@ -1,5 +1,6 @@
 package com.kosilka.feature.home
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kosilka.core.UiEvent
@@ -95,8 +96,9 @@ class HomeViewModel @Inject constructor(
                 }
 
                 when (state) {
-                    is ConnectionState.Connected,
-                    ConnectionState.Connecting -> stopAutoConnectLoop()
+                    is ConnectionState.Connected -> stopAutoConnectLoop()
+
+                    ConnectionState.Connecting -> Unit
 
                     ConnectionState.Disconnected,
                     is ConnectionState.Failed -> ensureAutoConnectLoop()
@@ -126,12 +128,20 @@ class HomeViewModel @Inject constructor(
         }
 
         autoConnectJob = viewModelScope.launch {
+            var attempt = 0
             while (isActive) {
                 val state = connectMowerUseCase.connectionState.value
-                if (state is ConnectionState.Connected || state is ConnectionState.Connecting) {
+                if (state is ConnectionState.Connected) {
                     break
                 }
+                if (state is ConnectionState.Connecting) {
+                    delay(200L)
+                    continue
+                }
+                attempt += 1
+                Log.i(TAG, "auto-connect: attempt=$attempt")
                 connectMowerUseCase.connect()
+                Log.i(TAG, "auto-connect: attempt=$attempt completed state=${connectMowerUseCase.connectionState.value}")
                 delay(AUTO_CONNECT_RETRY_MS)
             }
         }
@@ -143,6 +153,7 @@ class HomeViewModel @Inject constructor(
     }
 
     private companion object {
+        const val TAG = "HomeViewModel"
         const val AUTO_CONNECT_RETRY_MS = 2_000L
     }
 }

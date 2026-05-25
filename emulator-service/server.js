@@ -17,6 +17,7 @@ const TYPE = {
     RANGING_SAMPLE: 'RANGING_SAMPLE',
     HEARTBEAT: 'HEARTBEAT',
     MOVE_TO: 'MOVE_TO',
+    ZONE_SET: 'ZONE_SET',
     COVERAGE_UPDATE: 'COVERAGE_UPDATE',
     ERROR: 'ERROR'
 };
@@ -58,7 +59,14 @@ const state = {
     rotationSpeedDegPerSec: 90,
     destination: null,
     movementTimer: null,
-    commandLog: []
+    commandLog: [],
+    zones: [],
+    nextZoneId: 1
+};
+
+const ZONE_AREA_TYPE = {
+    AVAILABLE: 'AVAILABLE',
+    NO_GO: 'NO_GO'
 };
 
 function nowMs() {
@@ -130,6 +138,56 @@ function normalizePathEntry(entry) {
     };
 }
 
+function normalizeZoneAreaType(value) {
+    const normalized = String(value || '').trim().toUpperCase();
+    if (normalized === ZONE_AREA_TYPE.NO_GO || normalized === 'NO-GO') {
+        return ZONE_AREA_TYPE.NO_GO;
+    }
+    return ZONE_AREA_TYPE.AVAILABLE;
+}
+
+function inferZoneAreaType(zoneId, fallbackAreaType = ZONE_AREA_TYPE.AVAILABLE) {
+    const id = String(zoneId || '').toLowerCase();
+    if (id.startsWith('zone-no-go-') || id.includes('no-go') || id.includes('nogo')) {
+        return ZONE_AREA_TYPE.NO_GO;
+    }
+    if (id.startsWith('zone-available-') || id.includes('available')) {
+        return ZONE_AREA_TYPE.AVAILABLE;
+    }
+    return normalizeZoneAreaType(fallbackAreaType);
+}
+
+function normalizeZoneVertex(entry) {
+    return {
+        xMm: Math.round(Number(entry && entry.xMm) || 0),
+        yMm: Math.round(Number(entry && entry.yMm) || 0)
+    };
+}
+
+function normalizeZoneVertices(vertices) {
+    if (!Array.isArray(vertices) || vertices.length < 3) {
+        throw new Error('Zone requires at least 3 vertices');
+    }
+    return vertices.map(normalizeZoneVertex);
+}
+
+function normalizeZoneInput(body) {
+    const vertices = normalizeZoneVertices(body.vertices);
+    const zoneId = String(body.zoneId || body.id || `emu-zone-${state.nextZoneId++}`);
+    const areaType = inferZoneAreaType(zoneId, body.areaType);
+    return { zoneId, areaType, vertices };
+}
+
+function upsertZone(zone) {
+    const index = state.zones.findIndex((existing) => existing.id === zone.id);
+    if (index >= 0) {
+        state.zones[index] = { ...state.zones[index], ...zone };
+        return state.zones[index];
+    }
+    state.zones.push(zone);
+    return zone;
+}
+
 function createPersistentStateSnapshot() {
     return {
         version: 1,
@@ -152,7 +210,15 @@ function createPersistentStateSnapshot() {
         headingDeg: state.headingDeg,
         rotationSpeedDegPerSec: state.rotationSpeedDegPerSec,
         tags: state.tags.map((tag) => ({ ...tag })),
-        nextTagId: state.nextTagId
+        nextTagId: state.nextTagId,
+        zones: state.zones.map((zone) => ({
+            id: zone.id,
+            areaType: zone.areaType,
+            vertices: zone.vertices.map((vertex) => ({ ...vertex })),
+            source: zone.source,
+            updatedAtMs: zone.updatedAtMs
+        })),
+        nextZoneId: state.nextZoneId
     };
 }
 
@@ -174,6 +240,15 @@ function applyPersistentStateSnapshot(snapshot) {
             yMm: Math.round(Number(tag.yMm) || 0)
         }))
         : state.tags;
+    const nextZones = Array.isArray(snapshot.zones)
+        ? snapshot.zones.map((zone, index) => ({
+            id: String(zone.id || `emu-zone-${index + 1}`),
+            areaType: inferZoneAreaType(zone.id, zone.areaType),
+            vertices: normalizeZoneVertices(zone.vertices || []),
+            source: String(zone.source || 'EMULATOR').toUpperCase(),
+            updatedAtMs: Math.max(0, Number(zone.updatedAtMs) || nowMs())
+        }))
+        : state.zones;
 
     stopRanging();
 
@@ -205,11 +280,27 @@ function applyPersistentStateSnapshot(snapshot) {
             return Number.isFinite(parsed) ? Math.max(max, parsed + 1) : max;
         }, 1))
     );
+    state.zones = nextZones;
+    state.nextZoneId = Math.max(
+        1,
+        Number(snapshot.nextZoneId) || (nextZones.reduce((max, zone) => {
+            const parsed = Number(String(zone.id).replace(/^emu-zone-/, ''));
+            return Number.isFinite(parsed) ? Math.max(max, parsed + 1) : max;
+        }, 1))
+    );
 }
 
 function saveStateToFile(targetPath = STATE_FILE_PATH) {
     const content = JSON.stringify(createPersistentStateSnapshot(), null, 2);
     fs.writeFileSync(targetPath, content, 'utf8');
+}
+
+function persistStateSafely() {
+    try {
+        saveStateToFile(STATE_FILE_PATH);
+    } catch (error) {
+        console.error(`Failed to persist emulator state to ${STATE_FILE_PATH}:`, error);
+    }
 }
 
 function loadStateFromFile(targetPath = STATE_FILE_PATH) {
@@ -509,6 +600,7 @@ function createDebugSnapshot(options = {}) {
             leftoverMm: state.leftoverMm
         },
         tags: state.tags.map((tag) => ({ ...tag })),
+        zones: state.zones.map((zone) => ({ ...zone })),
         queue: {
             messageCount: state.messages.length,
             nextMessageId: state.nextMessageId,
@@ -544,6 +636,8 @@ async function handleRequest(req, res) {
         state.connected = true;
         state.connectedAtMs = nowMs();
         state.sessionId = `rest-session-${state.connectedAtMs}`;
+        logCommand('DEVICE_CONNECT', { sessionId: state.sessionId });
+        console.log(`[EMU] device connect -> sessionId=${state.sessionId}`);
         sendJson(res, 200, { sessionId: state.sessionId });
         return;
     }
@@ -551,6 +645,8 @@ async function handleRequest(req, res) {
     if (req.method === 'POST' && path === '/api/v1/device/disconnect') {
         state.connected = false;
         stopRanging();
+        logCommand('DEVICE_DISCONNECT', { sessionId: state.sessionId });
+        console.log(`[EMU] device disconnect <- sessionId=${state.sessionId}`);
         sendJson(res, 200, { ok: true });
         return;
     }
@@ -560,6 +656,7 @@ async function handleRequest(req, res) {
         const messageType = envelope.messageType;
         const payload = envelope.payload || {};
         const incomingSessionId = envelope.sessionId || state.sessionId;
+        console.log(`[EMU] recv envelope type=${messageType} sessionId=${incomingSessionId}`);
 
         if (messageType === TYPE.PAIR_REQUEST) {
             logCommand(messageType, payload);
@@ -590,6 +687,17 @@ async function handleRequest(req, res) {
                     yMm: Math.max(0, Math.round(targetYMm))
                 };
             }
+        } else if (messageType === TYPE.ZONE_SET) {
+            logCommand(messageType, payload);
+            const zoneInput = normalizeZoneInput(payload);
+            upsertZone({
+                id: zoneInput.zoneId,
+                areaType: zoneInput.areaType,
+                vertices: zoneInput.vertices,
+                source: 'APP',
+                updatedAtMs: nowMs()
+            });
+            persistStateSafely();
         } else if (messageType === TYPE.MOVE_TO && currentScenarioType() === 'BUSY') {
             logCommand(messageType, payload);
             enqueueMessage(TYPE.ERROR, {
@@ -625,8 +733,74 @@ async function handleRequest(req, res) {
             connected: state.connected,
             sessionId: state.sessionId,
             tags: [...state.tags],
+            zones: state.zones.map((zone) => ({ ...zone })),
             commandLog: [...state.commandLog]
         });
+        return;
+    }
+
+    if (req.method === 'GET' && path === '/api/v1/emulator/zones') {
+        sendJson(res, 200, { zones: state.zones.map((zone) => ({ ...zone })) });
+        return;
+    }
+
+    if (req.method === 'POST' && path === '/api/v1/emulator/zones') {
+        const body = await readJson(req);
+        const zoneInput = normalizeZoneInput(body);
+        const zone = upsertZone({
+            id: zoneInput.zoneId,
+            areaType: zoneInput.areaType,
+            vertices: zoneInput.vertices,
+            source: 'EMULATOR',
+            updatedAtMs: nowMs()
+        });
+        persistStateSafely();
+        sendJson(res, 200, { ok: true, zone: { ...zone } });
+        return;
+    }
+
+    if (req.method === 'DELETE' && path === '/api/v1/emulator/zones') {
+        const deleted = state.zones.length;
+        state.zones = [];
+        persistStateSafely();
+        sendJson(res, 200, { ok: true, deleted });
+        return;
+    }
+
+    if (req.method === 'PUT' && path.startsWith('/api/v1/emulator/zones/')) {
+        const zoneId = decodeURIComponent(path.replace('/api/v1/emulator/zones/', ''));
+        const body = await readJson(req);
+        const existing = state.zones.find((zone) => zone.id === zoneId);
+        if (!existing) {
+            sendJson(res, 404, { error: 'Zone not found' });
+            return;
+        }
+
+        const nextVertices = body.vertices ? normalizeZoneVertices(body.vertices) : existing.vertices;
+        const nextAreaType = body.areaType
+            ? normalizeZoneAreaType(body.areaType)
+            : inferZoneAreaType(zoneId, existing.areaType);
+
+        const updatedZone = upsertZone({
+            ...existing,
+            id: zoneId,
+            areaType: nextAreaType,
+            vertices: nextVertices,
+            source: 'EMULATOR',
+            updatedAtMs: nowMs()
+        });
+
+        persistStateSafely();
+        sendJson(res, 200, { ok: true, zone: { ...updatedZone } });
+        return;
+    }
+
+    if (req.method === 'DELETE' && path.startsWith('/api/v1/emulator/zones/')) {
+        const zoneId = decodeURIComponent(path.replace('/api/v1/emulator/zones/', ''));
+        const before = state.zones.length;
+        state.zones = state.zones.filter((zone) => zone.id !== zoneId);
+        persistStateSafely();
+        sendJson(res, 200, { ok: true, deleted: before - state.zones.length });
         return;
     }
 
@@ -785,6 +959,16 @@ const server = http.createServer((req, res) => {
 
 tryAutoLoadState();
 startMovementLoop();
+
+function handleShutdown(signal) {
+    console.log(`[EMU] shutdown signal received: ${signal}`);
+    persistStateSafely();
+    process.exit(0);
+}
+
+process.on('SIGINT', () => handleShutdown('SIGINT'));
+process.on('SIGTERM', () => handleShutdown('SIGTERM'));
+process.on('beforeExit', () => persistStateSafely());
 
 server.listen(PORT, () => {
     console.log(`Emulator REST service listening on http://0.0.0.0:${PORT}`);

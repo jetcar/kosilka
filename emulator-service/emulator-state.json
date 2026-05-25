@@ -1,0 +1,115 @@
+{
+  "version": 1,
+  "savedAtMs": 1779726810111,
+  "scenario": {
+    "type": "NORMAL",
+    "untilMs": 0,
+    "driftRateMmPerSec": 80
+  },
+  "position": {
+    "xMm": 676,
+    "yMm": 3904
+  },
+  "path": [
+    {
+      "xMm": 0,
+      "yMm": 0
+    },
+    {
+      "xMm": 4000,
+      "yMm": 0
+    },
+    {
+      "xMm": 4000,
+      "yMm": 3000
+    },
+    {
+      "xMm": 0,
+      "yMm": 3000
+    }
+  ],
+  "pathIndex": 0,
+  "sequence": 0,
+  "leftoverMm": 0,
+  "sampleRateHz": 5,
+  "speedMmPerSec": 200,
+  "headingDeg": 0,
+  "rotationSpeedDegPerSec": 90,
+  "tags": [],
+  "nextTagId": 1,
+  "zones": [
+    {
+      "id": "emu-zone-1",
+      "areaType": "AVAILABLE",
+      "vertices": [
+        {
+          "xMm": 1400,
+          "yMm": 1550
+        },
+        {
+          "xMm": 2600,
+          "yMm": 1550
+        },
+        {
+          "xMm": 3430,
+          "yMm": 4500
+        },
+        {
+          "xMm": 317,
+          "yMm": 4164
+        }
+      ],
+      "source": "EMULATOR",
+      "updatedAtMs": 1779726781573
+    },
+    {
+      "id": "emu-zone-2",
+      "areaType": "NO_GO",
+      "vertices": [
+        {
+          "xMm": 1551,
+          "yMm": 3494
+        },
+        {
+          "xMm": 2751,
+          "yMm": 3494
+        },
+        {
+          "xMm": 2751,
+          "yMm": 3944
+        },
+        {
+          "xMm": 1551,
+          "yMm": 3944
+        }
+      ],
+      "source": "EMULATOR",
+      "updatedAtMs": 1779726787035
+    },
+    {
+      "id": "emu-zone-3",
+      "areaType": "NO_GO",
+      "vertices": [
+        {
+          "xMm": 1658,
+          "yMm": 2621
+        },
+        {
+          "xMm": 1748,
+          "yMm": 2592
+        },
+        {
+          "xMm": 1748,
+          "yMm": 2733
+        },
+        {
+          "xMm": 1627,
+          "yMm": 2799
+        }
+      ],
+      "source": "EMULATOR",
+      "updatedAtMs": 1779726802507
+    }
+  ],
+  "nextZoneId": 4
+}

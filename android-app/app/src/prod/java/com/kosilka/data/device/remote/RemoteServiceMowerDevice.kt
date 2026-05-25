@@ -46,6 +46,9 @@ class RemoteServiceMowerDevice @Inject constructor(
     override val incomingMessages: Flow<IncomingMessage> = incomingMessagesFlow.asSharedFlow()
 
     override suspend fun connect(): Result<Unit> {
+        // Reset message cursor for a new transport session. This prevents
+        // reconnects from requesting messages with a stale high sinceId.
+        lastSeenMessageId = null
         val connectResult = apiClient.connect()
         if (connectResult.isFailure) {
             val throwable = connectResult.exceptionOrNull() ?: IllegalStateException("Failed to connect")
@@ -67,6 +70,7 @@ class RemoteServiceMowerDevice @Inject constructor(
 
         connected = false
         stopPollingLoop()
+        lastSeenMessageId = null
         apiClient.disconnect()
         connectionEventsFlow.emit(ConnectionEvent.Disconnected)
     }

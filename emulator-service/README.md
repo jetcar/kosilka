@@ -43,6 +43,11 @@ The app reads this from `BuildConfig.MOWER_SERVICE_BASE_URL` in prod build confi
 - `POST /api/v1/emulator/tags`
 - `DELETE /api/v1/emulator/tags/:id`
 - `PUT /api/v1/emulator/tags/:id`
+- `GET /api/v1/emulator/zones`
+- `POST /api/v1/emulator/zones`
+- `DELETE /api/v1/emulator/zones`
+- `PUT /api/v1/emulator/zones/:id`
+- `DELETE /api/v1/emulator/zones/:id`
 - `PUT /api/v1/emulator/mower-position`
 - `POST /api/v1/emulator/scenario/activate`
 - `POST /api/v1/emulator/scenario/clear`
@@ -69,5 +74,6 @@ State persistence examples:
 - `RANGING_START` starts periodic ranging samples and coverage updates.
 - Scenario controls influence quality/drop/busy behavior.
 - UI lets you add/remove tags, drag tags directly on the map, drag mower position on the map, and place mower location manually.
+- UI lets you add/remove available and no-go zones directly on the map controls for manual parity checks while configuring zones in app.
 - Use the debug memory endpoint to inspect current in-memory state and message queue for troubleshooting.
 - Save/load endpoints persist and restore emulator scenario, mower position, path, and tags.

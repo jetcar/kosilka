@@ -24,7 +24,7 @@ import com.kosilka.data.local.entity.ZoneEntity
         AnchorEntity::class
     ],
     version = 1,
-    exportSchema = true
+    exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun zoneDao(): ZoneDao

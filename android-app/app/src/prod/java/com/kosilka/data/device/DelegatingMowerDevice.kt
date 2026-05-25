@@ -1,5 +1,6 @@
 package com.kosilka.data.device
 
+import android.util.Log
 import com.kosilka.data.device.protocol.Envelope
 import com.kosilka.data.device.protocol.IncomingMessage
 import com.kosilka.data.device.remote.RemoteServiceMowerDevice
@@ -28,7 +29,33 @@ class DelegatingMowerDevice @Inject constructor(
         .distinctUntilChanged()
         .flatMapLatest { mode -> activeDeviceForMode(mode).incomingMessages }
 
-    override suspend fun connect(): Result<Unit> = activeDevice().connect()
+    override suspend fun connect(): Result<Unit> {
+        val preferredMode = transportModeStore.currentMode()
+        Log.i(TAG, "connect: preferredMode=$preferredMode")
+        val preferredDevice = activeDeviceForMode(preferredMode)
+        val preferredResult = preferredDevice.connect()
+        if (preferredResult.isSuccess) {
+            Log.i(TAG, "connect: preferred mode succeeded")
+            return preferredResult
+        }
+        Log.w(TAG, "connect: preferred mode failed reason=${preferredResult.exceptionOrNull()?.message}")
+
+        val fallbackMode = when (preferredMode) {
+            TransportMode.USB -> TransportMode.SERVICE
+            TransportMode.SERVICE -> TransportMode.USB
+        }
+        Log.i(TAG, "connect: trying fallbackMode=$fallbackMode")
+        val fallbackDevice = activeDeviceForMode(fallbackMode)
+        val fallbackResult = fallbackDevice.connect()
+        if (fallbackResult.isSuccess) {
+            transportModeStore.setMode(fallbackMode)
+            Log.i(TAG, "connect: fallback mode succeeded; persisted mode=$fallbackMode")
+            return fallbackResult
+        }
+        Log.e(TAG, "connect: fallback mode failed reason=${fallbackResult.exceptionOrNull()?.message}")
+
+        return preferredResult
+    }
 
     override suspend fun disconnect() {
         activeDevice().disconnect()
@@ -45,5 +72,9 @@ class DelegatingMowerDevice @Inject constructor(
             TransportMode.USB -> usbMowerDevice
             TransportMode.SERVICE -> remoteServiceMowerDevice
         }
+    }
+
+    private companion object {
+        const val TAG = "DelegatingMowerDevice"
     }
 }

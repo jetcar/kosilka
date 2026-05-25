@@ -146,6 +146,11 @@ A change is complete when:
 - Add UI tests for critical user flows.
 - Ensure deterministic tests by mocking clocks, dispatchers, and hardware inputs.
 
+### Android change workflow
+- After every Android code change, rebuild the app before reporting completion.
+- After a successful build, restart the app on the active target device/emulator.
+- Treat rebuild + restart as required verification steps, not optional.
+
 ## ESP32 firmware + UWB rules
 
 ### Firmware architecture
@@ -197,6 +202,12 @@ A change is complete when:
 - `firmware-esp32/`: drivers, UWB logic, protocol, tasks.
 - `protocol/`: shared message schema docs, IDs, error codes, test vectors.
 - `tools/`: scripts for flashing, logs collection, and integration checks.
+
+## Spec location policy
+- Keep all specification documents in `.kiro/specs/` only.
+- Do not create or maintain spec files under source folders such as `android-app/` or `firmware-esp32/`.
+- When updating an existing spec outside `.kiro/specs/`, move it into `.kiro/specs/<feature>/` and continue editing there.
+- For this repository, feature specs should live under `.kiro/specs/lawn-mower-control/` unless a new feature folder is explicitly created.
 
 ## Additional done criteria for Android + UWB
 1. App and firmware protocol versions are aligned and documented.

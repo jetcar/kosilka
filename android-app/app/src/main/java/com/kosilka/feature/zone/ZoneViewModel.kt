@@ -1,5 +1,6 @@
 package com.kosilka.feature.zone
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kosilka.domain.model.Point2dMm
@@ -82,7 +83,7 @@ class ZoneViewModel @Inject constructor(
                     } else if (current.noGoZones.isNotEmpty()) {
                         current.noGoZones
                     } else {
-                        listOf(ZoneDraft(id = defaultNoGoId(0), vertices = defaultNoGoVertices(0)))
+                        emptyList()
                     }
 
                     clampSelectedIndex(
@@ -103,7 +104,7 @@ class ZoneViewModel @Inject constructor(
                     }
 
                     ConnectionState.Connecting -> {
-                        stopAutoConnectLoop()
+                        Unit
                     }
 
                     ConnectionState.Disconnected -> {
@@ -152,6 +153,14 @@ class ZoneViewModel @Inject constructor(
         queueNavigationTarget(point = point, forceImmediate = false)
     }
 
+    fun onEditMowerDrag(point: Point2dMm) {
+        queueNavigationTarget(
+            point = point,
+            forceImmediate = false,
+            allowWhenNavigationModeOff = true
+        )
+    }
+
     fun setNavigationMode(enabled: Boolean) {
         _uiState.update {
             it.copy(
@@ -193,9 +202,35 @@ class ZoneViewModel @Inject constructor(
         }
     }
 
-    fun addZone() {
+    fun selectZone(areaType: ZoneAreaType, index: Int) {
         _uiState.update { current ->
-            val isAvailable = current.selectedAreaType == ZoneAreaType.AVAILABLE
+            val zones = if (areaType == ZoneAreaType.AVAILABLE) {
+                current.availableZones
+            } else {
+                current.noGoZones
+            }
+            if (zones.isEmpty()) {
+                return@update current
+            }
+            current.copy(
+                selectedAreaType = areaType,
+                selectedZoneIndex = index.coerceIn(0, zones.lastIndex),
+                statusMessage = null
+            )
+        }
+    }
+
+    fun addAvailableZone() {
+        addZone(ZoneAreaType.AVAILABLE)
+    }
+
+    fun addNoGoZone() {
+        addZone(ZoneAreaType.NO_GO)
+    }
+
+    private fun addZone(areaType: ZoneAreaType) {
+        _uiState.update { current ->
+            val isAvailable = areaType == ZoneAreaType.AVAILABLE
             val existingZones = if (isAvailable) current.availableZones else current.noGoZones
             val nextIndex = existingZones.size
             val nextZone = ZoneDraft(
@@ -204,9 +239,17 @@ class ZoneViewModel @Inject constructor(
             )
 
             val nextState = if (isAvailable) {
-                current.copy(availableZones = existingZones + nextZone, selectedZoneIndex = nextIndex)
+                current.copy(
+                    selectedAreaType = ZoneAreaType.AVAILABLE,
+                    availableZones = existingZones + nextZone,
+                    selectedZoneIndex = nextIndex
+                )
             } else {
-                current.copy(noGoZones = existingZones + nextZone, selectedZoneIndex = nextIndex)
+                current.copy(
+                    selectedAreaType = ZoneAreaType.NO_GO,
+                    noGoZones = existingZones + nextZone,
+                    selectedZoneIndex = nextIndex
+                )
             }
 
             nextState.copy(statusMessage = null)
@@ -218,13 +261,20 @@ class ZoneViewModel @Inject constructor(
         _uiState.update { current ->
             val isAvailable = current.selectedAreaType == ZoneAreaType.AVAILABLE
             val zones = selectedZones(current)
-            if (zones.size <= 1) {
-                return@update current.copy(statusMessage = "At least one zone is required")
+            if (zones.isEmpty()) {
+                return@update current
+            }
+
+            if (isAvailable && zones.size <= 1) {
+                return@update current.copy(statusMessage = "At least one available zone is required")
             }
 
             val deleteIndex = current.selectedZoneIndex.coerceIn(0, zones.lastIndex)
             val nextZones = zones.filterIndexed { index, _ -> index != deleteIndex }
-            val nextSelectedIndex = deleteIndex.coerceAtMost(nextZones.lastIndex)
+            val nextSelectedIndex = when {
+                nextZones.isEmpty() -> 0
+                else -> deleteIndex.coerceAtMost(nextZones.lastIndex)
+            }
 
             if (isAvailable) {
                 current.copy(
@@ -233,8 +283,13 @@ class ZoneViewModel @Inject constructor(
                     statusMessage = "Zone deleted. Press Save to apply"
                 )
             } else {
+                val nextNoGoZones = if (nextZones.isEmpty()) {
+                    emptyList()
+                } else {
+                    nextZones
+                }
                 current.copy(
-                    noGoZones = nextZones,
+                    noGoZones = nextNoGoZones,
                     selectedZoneIndex = nextSelectedIndex,
                     statusMessage = "Zone deleted. Press Save to apply"
                 )
@@ -244,10 +299,6 @@ class ZoneViewModel @Inject constructor(
     }
 
     fun moveCorner(cornerIndex: Int, point: Point2dMm) {
-        if (cornerIndex !in 0..3) {
-            return
-        }
-
         _uiState.update { current ->
             val zones = selectedZones(current)
             if (zones.isEmpty()) {
@@ -256,20 +307,14 @@ class ZoneViewModel @Inject constructor(
 
             val selectedIndex = current.selectedZoneIndex.coerceIn(0, zones.lastIndex)
             val activeZone = zones[selectedIndex]
-            val rectangle = RectangleDraft.fromVertices(activeZone.vertices)
-                ?: RectangleDraft.fromVertices(defaultRectangleVertices(selectedIndex))
-                ?: return@update current
+            if (cornerIndex !in activeZone.vertices.indices) {
+                return@update current
+            }
 
-            val clampedX = point.xMm.coerceIn(MAP_MIN_X_MM, MAP_MAX_X_MM)
-            val clampedY = point.yMm.coerceIn(MAP_MIN_Y_MM, MAP_MAX_Y_MM)
-
-            val nextRectangle = rectangle.moveCorner(
-                cornerIndex = cornerIndex,
-                target = Point2dMm(clampedX, clampedY),
-                minSizeMm = RECT_MIN_SIZE_MM
-            )
-
-            val nextZone = activeZone.copy(vertices = nextRectangle.toVertices())
+            val nextVertices = activeZone.vertices.toMutableList().apply {
+                this[cornerIndex] = point
+            }
+            val nextZone = activeZone.copy(vertices = nextVertices)
             val nextZones = zones.toMutableList().apply { this[selectedIndex] = nextZone }
             updateSelectedTypeZones(current, nextZones).copy(statusMessage = null)
         }
@@ -293,22 +338,10 @@ class ZoneViewModel @Inject constructor(
                 return@update current
             }
 
-            val minX = activeZone.vertices.minOf { it.xMm }
-            val maxX = activeZone.vertices.maxOf { it.xMm }
-            val minY = activeZone.vertices.minOf { it.yMm }
-            val maxY = activeZone.vertices.maxOf { it.yMm }
-
-            val allowedDx = deltaXMm
-                .coerceAtMost(MAP_MAX_X_MM - maxX)
-                .coerceAtLeast(MAP_MIN_X_MM - minX)
-            val allowedDy = deltaYMm
-                .coerceAtMost(MAP_MAX_Y_MM - maxY)
-                .coerceAtLeast(MAP_MIN_Y_MM - minY)
-
             val movedVertices = activeZone.vertices.map {
                 Point2dMm(
-                    xMm = (it.xMm + allowedDx).coerceIn(MAP_MIN_X_MM, MAP_MAX_X_MM),
-                    yMm = (it.yMm + allowedDy).coerceIn(MAP_MIN_Y_MM, MAP_MAX_Y_MM)
+                    xMm = it.xMm + deltaXMm,
+                    yMm = it.yMm + deltaYMm
                 )
             }
             val nextZone = activeZone.copy(vertices = movedVertices)
@@ -340,8 +373,21 @@ class ZoneViewModel @Inject constructor(
         persistSelectedZonesDraftDebounced()
     }
 
-    fun clearDraft() {
-        resetDraftToCurrentOrDefault()
+    fun resetAllZones() {
+        _uiState.update { current ->
+            current.copy(
+                selectedAreaType = ZoneAreaType.AVAILABLE,
+                selectedZoneIndex = 0,
+                availableZones = listOf(
+                    ZoneDraft(id = defaultAvailableId(0), vertices = defaultRectangleVertices(0))
+                ),
+                noGoZones = listOf(
+                    ZoneDraft(id = defaultNoGoId(0), vertices = defaultNoGoVertices(0))
+                ),
+                statusMessage = "All zones reset"
+            )
+        }
+        persistAllZonesDraftDebounced()
     }
 
     fun confirmZone() {
@@ -449,11 +495,15 @@ class ZoneViewModel @Inject constructor(
         }
     }
 
-    private fun queueNavigationTarget(point: Point2dMm, forceImmediate: Boolean) {
-        val target = Point2dMm(
-            xMm = point.xMm.coerceIn(MAP_MIN_X_MM, MAP_MAX_X_MM),
-            yMm = point.yMm.coerceIn(MAP_MIN_Y_MM, MAP_MAX_Y_MM)
-        )
+    private fun queueNavigationTarget(
+        point: Point2dMm,
+        forceImmediate: Boolean,
+        allowWhenNavigationModeOff: Boolean = false
+    ) {
+        if (!_uiState.value.isNavigationMode && !allowWhenNavigationModeOff) {
+            return
+        }
+        val target = point
         val nowMs = System.currentTimeMillis()
         val elapsedMs = nowMs - lastNavigationCommandAtMs
 
@@ -475,7 +525,7 @@ class ZoneViewModel @Inject constructor(
             delay(waitMs)
             val queuedTarget = queuedNavigationTarget
             queuedNavigationTarget = null
-            if (queuedTarget != null && _uiState.value.isNavigationMode) {
+            if (queuedTarget != null && (_uiState.value.isNavigationMode || allowWhenNavigationModeOff)) {
                 lastNavigationCommandAtMs = System.currentTimeMillis()
                 sendMoveToTarget(queuedTarget)
             }
@@ -600,8 +650,8 @@ class ZoneViewModel @Inject constructor(
         val safeX = start.xMm + ((desiredTarget.xMm - start.xMm) * safeT)
         val safeY = start.yMm + ((desiredTarget.yMm - start.yMm) * safeT)
         return Point2dMm(
-            xMm = safeX.roundToInt().coerceIn(MAP_MIN_X_MM, MAP_MAX_X_MM),
-            yMm = safeY.roundToInt().coerceIn(MAP_MIN_Y_MM, MAP_MAX_Y_MM)
+            xMm = safeX.roundToInt(),
+            yMm = safeY.roundToInt()
         )
     }
 
@@ -635,8 +685,8 @@ class ZoneViewModel @Inject constructor(
         val safeX = start.xMm + ((desiredTarget.xMm - start.xMm) * safeT)
         val safeY = start.yMm + ((desiredTarget.yMm - start.yMm) * safeT)
         return Point2dMm(
-            xMm = safeX.roundToInt().coerceIn(MAP_MIN_X_MM, MAP_MAX_X_MM),
-            yMm = safeY.roundToInt().coerceIn(MAP_MIN_Y_MM, MAP_MAX_Y_MM)
+            xMm = safeX.roundToInt(),
+            yMm = safeY.roundToInt()
         )
     }
 
@@ -824,12 +874,20 @@ class ZoneViewModel @Inject constructor(
         }
 
         autoConnectJob = viewModelScope.launch {
+            var attempt = 0
             while (isActive) {
                 val state = connectMowerUseCase.connectionState.value
-                if (state is ConnectionState.Connected || state is ConnectionState.Connecting) {
+                if (state is ConnectionState.Connected) {
                     break
                 }
+                if (state is ConnectionState.Connecting) {
+                    delay(200L)
+                    continue
+                }
+                attempt += 1
+                Log.i(TAG, "auto-connect: attempt=$attempt")
                 connectMowerUseCase.connect()
+                Log.i(TAG, "auto-connect: attempt=$attempt completed state=${connectMowerUseCase.connectionState.value}")
                 delay(AUTO_CONNECT_RETRY_MS)
             }
         }
@@ -860,26 +918,26 @@ class ZoneViewModel @Inject constructor(
         }
     }
 
+    private fun persistAllZonesDraftDebounced() {
+        draftPersistenceJob?.cancel()
+        val snapshot = _uiState.value
+        val available = snapshot.availableZones.map { it.vertices }
+        val noGo = snapshot.noGoZones.map { it.vertices }
+
+        draftPersistenceJob = viewModelScope.launch {
+            delay(DRAFT_PERSIST_DEBOUNCE_MS)
+            defineZoneUseCase.saveAvailableZonesLocally(available)
+            defineZoneUseCase.saveNoGoZonesLocally(noGo)
+        }
+    }
+
     private fun zoneToRectangle(vertices: List<Point2dMm>?): List<Point2dMm>? {
-        if (vertices.isNullOrEmpty()) {
+        if (vertices.isNullOrEmpty() || vertices.size < 3) {
             return null
         }
 
-        val minX = vertices.minOf { it.xMm }
-        val maxX = vertices.maxOf { it.xMm }
-        val minY = vertices.minOf { it.yMm }
-        val maxY = vertices.maxOf { it.yMm }
-
-        if (maxX - minX < RECT_MIN_SIZE_MM || maxY - minY < RECT_MIN_SIZE_MM) {
-            return null
-        }
-
-        return listOf(
-            Point2dMm(minX, minY),
-            Point2dMm(maxX, minY),
-            Point2dMm(maxX, maxY),
-            Point2dMm(minX, maxY)
-        )
+        // Keep exact polygon shape as authored by corner dragging.
+        return vertices.toList()
     }
 
     private fun defaultRectangleVertices(index: Int): List<Point2dMm> {
@@ -1011,6 +1069,7 @@ class ZoneViewModel @Inject constructor(
     }
 
     private companion object {
+        const val TAG = "ZoneViewModel"
         const val MAP_MIN_X_MM = 0
         const val MAP_MIN_Y_MM = 0
         const val MAP_MAX_X_MM = 6000
