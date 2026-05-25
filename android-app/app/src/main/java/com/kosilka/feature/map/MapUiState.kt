@@ -9,6 +9,8 @@ import com.kosilka.domain.model.Zone
 data class MapUiState(
     val anchors: List<Anchor> = emptyList(),
     val mowerPosition: MowerPosition? = null,
+    val availableZones: List<Zone> = emptyList(),
+    val noGoZones: List<Zone> = emptyList(),
     val zone: Zone? = null,
     val coverageSegments: List<CoverageSegment> = emptyList(),
     val coveragePercent: Float = 0f,

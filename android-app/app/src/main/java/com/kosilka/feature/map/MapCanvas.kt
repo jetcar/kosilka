@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import com.kosilka.domain.model.Point2dMm
+import com.kosilka.domain.model.Zone
 
 @Composable
 fun MapCanvas(
@@ -60,24 +61,25 @@ fun MapCanvas(
             drawCircle(color = Color(0xFF2E7D32), radius = 10f, center = offset)
         }
 
-        // Zone polygon
-        state.zone?.let { zone ->
-            if (zone.vertices.size >= 3) {
-                val path = Path()
-                zone.vertices.forEachIndexed { index, point ->
-                    val offset = MapCoordinateConverter.mapMmToScreen(
-                        mapPoint = point,
-                        panOffsetPx = pan,
-                        zoom = zoom,
-                        pixelsPerMeterAtZoom1 = pxPerMeterAtZoom1
-                    )
-                    if (index == 0) path.moveTo(offset.x, offset.y) else path.lineTo(offset.x, offset.y)
-                }
-                path.close()
-                drawPath(color = Color(0x552196F3), path = path)
-                drawPath(color = Color(0xFF1976D2), path = path)
-            }
-        }
+        // Available zones (bottom layer)
+        drawZoneLayer(
+            zones = state.availableZones,
+            fillColor = Color(0x552196F3),
+            strokeColor = Color(0xFF1976D2),
+            pan = pan,
+            zoom = zoom,
+            pxPerMeterAtZoom1 = pxPerMeterAtZoom1
+        )
+
+        // No-go zones (drawn above available)
+        drawZoneLayer(
+            zones = state.noGoZones,
+            fillColor = Color(0x55EF5350),
+            strokeColor = Color(0xFFD32F2F),
+            pan = pan,
+            zoom = zoom,
+            pxPerMeterAtZoom1 = pxPerMeterAtZoom1
+        )
 
         // Coverage overlay (segments)
         state.coverageSegments.forEach { segment ->
@@ -137,6 +139,40 @@ fun MapCanvas(
         mowerOffset?.let { offset ->
             drawCircle(color = Color(0xFFD32F2F), radius = 14f, center = offset)
         }
+    }
+}
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawZoneLayer(
+    zones: List<Zone>,
+    fillColor: Color,
+    strokeColor: Color,
+    pan: Offset,
+    zoom: Float,
+    pxPerMeterAtZoom1: Float
+) {
+    zones.forEach { zone ->
+        if (zone.vertices.size < 3) {
+            return@forEach
+        }
+
+        val path = Path()
+        zone.vertices.forEachIndexed { index, point ->
+            val offset = MapCoordinateConverter.mapMmToScreen(
+                mapPoint = point,
+                panOffsetPx = pan,
+                zoom = zoom,
+                pixelsPerMeterAtZoom1 = pxPerMeterAtZoom1
+            )
+            if (index == 0) {
+                path.moveTo(offset.x, offset.y)
+            } else {
+                path.lineTo(offset.x, offset.y)
+            }
+        }
+        path.close()
+
+        drawPath(color = fillColor, path = path)
+        drawPath(color = strokeColor, path = path)
     }
 }
 

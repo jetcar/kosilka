@@ -12,6 +12,7 @@ import com.kosilka.domain.usecase.LoadAnchorsUseCase
 import com.kosilka.domain.usecase.LoadSessionCoverageUseCase
 import com.kosilka.domain.usecase.MoveMowerResult
 import com.kosilka.domain.usecase.MoveMowerUseCase
+import com.kosilka.domain.usecase.ReadCurrentMowerPositionUseCase
 import com.kosilka.domain.usecase.SessionHistoryRepository
 import com.kosilka.domain.usecase.StartRangingUseCase
 import com.kosilka.domain.usecase.TrackCoverageUseCase
@@ -32,6 +33,7 @@ class MapViewModel @Inject constructor(
     private val startRangingUseCase: StartRangingUseCase,
     private val connectMowerUseCase: ConnectMowerUseCase,
     private val moveMowerUseCase: MoveMowerUseCase,
+    private val readCurrentMowerPositionUseCase: ReadCurrentMowerPositionUseCase,
     private val defineZoneUseCase: DefineZoneUseCase,
     private val trackCoverageUseCase: TrackCoverageUseCase,
     private val sessionHistoryRepository: SessionHistoryRepository,
@@ -51,6 +53,11 @@ class MapViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             loadAnchorsUseCase.ensureDefaultAnchors()
+        }
+
+        // Show mower marker immediately on map open, even before ranging starts.
+        viewModelScope.launch {
+            refreshCurrentMowerPosition()
         }
 
         viewModelScope.launch {
@@ -81,6 +88,7 @@ class MapViewModel @Inject constructor(
                             zone = _uiState.value.zone
                         )
                         _uiState.update { it.copy(isConnected = true, statusMessage = null) }
+                        refreshCurrentMowerPosition()
                     }
 
                     ConnectionState.Connecting -> {
@@ -105,9 +113,21 @@ class MapViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            defineZoneUseCase.observeZone().collect { zone ->
-                trackCoverageUseCase.updateZone(zone)
-                _uiState.update { it.copy(zone = zone) }
+            defineZoneUseCase.observeAvailableZones().collect { availableZones ->
+                val primaryZone = availableZones.firstOrNull()
+                trackCoverageUseCase.updateZone(primaryZone)
+                _uiState.update {
+                    it.copy(
+                        availableZones = availableZones,
+                        zone = primaryZone
+                    )
+                }
+            }
+        }
+
+        viewModelScope.launch {
+            defineZoneUseCase.observeNoGoZones().collect { noGoZones ->
+                _uiState.update { it.copy(noGoZones = noGoZones) }
             }
         }
 
@@ -270,6 +290,20 @@ class MapViewModel @Inject constructor(
                 is MoveMowerResult.DeliveryFailed -> {
                     _uiState.update { it.copy(statusMessage = result.reason) }
                 }
+            }
+        }
+    }
+
+    private suspend fun refreshCurrentMowerPosition() {
+        readCurrentMowerPositionUseCase.read().getOrNull()?.let { point ->
+            _uiState.update { current ->
+                current.copy(
+                    mowerPosition = com.kosilka.domain.model.MowerPosition(
+                        xMm = point.xMm,
+                        yMm = point.yMm,
+                        timestampMs = System.currentTimeMillis()
+                    )
+                )
             }
         }
     }

@@ -8,6 +8,8 @@ import com.kosilka.domain.model.Point2dMm
  */
 object MapCoordinateConverter {
 
+    private const val MAP_HEIGHT_MM = 4500
+
     fun screenToMapMm(
         screenPoint: Offset,
         panOffsetPx: Offset,
@@ -16,7 +18,7 @@ object MapCoordinateConverter {
     ): Point2dMm {
         val pxPerMm = (pixelsPerMeterAtZoom1 * zoom) / 1_000f
         val mapXmm = ((screenPoint.x - panOffsetPx.x) / pxPerMm).toInt()
-        val mapYmm = ((screenPoint.y - panOffsetPx.y) / pxPerMm).toInt()
+        val mapYmm = (MAP_HEIGHT_MM - ((screenPoint.y - panOffsetPx.y) / pxPerMm)).toInt()
         return Point2dMm(xMm = mapXmm, yMm = mapYmm)
     }
 
@@ -28,7 +30,7 @@ object MapCoordinateConverter {
     ): Offset {
         val pxPerMm = (pixelsPerMeterAtZoom1 * zoom) / 1_000f
         val screenX = panOffsetPx.x + (mapPoint.xMm * pxPerMm)
-        val screenY = panOffsetPx.y + (mapPoint.yMm * pxPerMm)
+        val screenY = panOffsetPx.y + ((MAP_HEIGHT_MM - mapPoint.yMm) * pxPerMm)
         return Offset(x = screenX, y = screenY)
     }
 }

@@ -218,8 +218,8 @@ private fun ZoneRectangleEditor(
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(isNavigationMode) {
-                    if (isNavigationMode) {
+                .pointerInput(isNavigationMode, isEditMode) {
+                    if (isNavigationMode || isEditMode) {
                         return@pointerInput
                     }
                     detectTransformGestures { _, panChange, zoomChange, _ ->
