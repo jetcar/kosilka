@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import com.kosilka.domain.model.Point2dMm
 import com.kosilka.domain.usecase.ConnectMowerUseCase
 import com.kosilka.domain.usecase.ConnectionState
-import com.kosilka.domain.usecase.DefineZoneResult
 import com.kosilka.domain.usecase.DefineZoneUseCase
 import com.kosilka.domain.usecase.MoveMowerResult
 import com.kosilka.domain.usecase.MoveMowerUseCase
@@ -100,6 +99,7 @@ class ZoneViewModel @Inject constructor(
                         activeSessionId = state.sessionId
                         _uiState.update { it.copy(statusMessage = null) }
                         stopAutoConnectLoop()
+                        refreshCurrentMowerPosition()
                         startPositionPollingIfNeeded()
                     }
 
@@ -125,15 +125,18 @@ class ZoneViewModel @Inject constructor(
 
         ensureAutoConnectLoop()
 
+        // Apply the latest known mower position as soon as Zone screen opens.
+        viewModelScope.launch {
+            refreshCurrentMowerPosition()
+        }
+
         viewModelScope.launch {
             startRangingUseCase.state.collect { rangingState ->
                 val rangedPosition = rangingState.latestPosition?.let { position ->
                     Point2dMm(position.xMm, position.yMm)
                 }
                 if (rangedPosition != null) {
-                    _uiState.update {
-                        it.copy(mowerPosition = rangedPosition)
-                    }
+                    updateMowerPosition(rangedPosition)
                 }
             }
         }
@@ -143,11 +146,20 @@ class ZoneViewModel @Inject constructor(
         if (!_uiState.value.isNavigationMode) {
             return
         }
+        if (hasActiveMovementTarget(_uiState.value)) {
+            _uiState.update {
+                it.copy(statusMessage = "Movement in progress. Press Stop or wait for arrival before setting a new target")
+            }
+            return
+        }
         queueNavigationTarget(point = point, forceImmediate = true)
     }
 
     fun onMapTapAndHold(point: Point2dMm) {
         if (!_uiState.value.isNavigationMode) {
+            return
+        }
+        if (hasActiveMovementTarget(_uiState.value)) {
             return
         }
         queueNavigationTarget(point = point, forceImmediate = false)
@@ -392,61 +404,19 @@ class ZoneViewModel @Inject constructor(
 
     fun confirmZone() {
         viewModelScope.launch {
-            val sessionId = activeSessionId
-            if (sessionId == null) {
-                _uiState.update { it.copy(statusMessage = "Not connected") }
-                return@launch
-            }
-
             val state = _uiState.value
-            val selectedType = state.selectedAreaType
-            val zonesToSave = selectedZones(state)
-            if (zonesToSave.isEmpty()) {
-                _uiState.update { it.copy(statusMessage = "No zones to save") }
-                return@launch
-            }
+            val availableZonesToSave = state.availableZones.map { it.vertices }
+            val noGoZonesToSave = state.noGoZones.map { it.vertices }
 
             _uiState.update { it.copy(isSaving = true, statusMessage = null) }
 
-            for ((index, zone) in zonesToSave.withIndex()) {
-                val result = if (selectedType == ZoneAreaType.AVAILABLE) {
-                    defineZoneUseCase.defineAvailableZone(sessionId, index, zone.vertices)
-                } else {
-                    defineZoneUseCase.defineNoGoZone(sessionId, index, zone.vertices)
-                }
-
-                if (result !is DefineZoneResult.Success) {
-                    _uiState.update {
-                        it.copy(
-                            isSaving = false,
-                            statusMessage = when (result) {
-                                is DefineZoneResult.Invalid -> result.reason
-                                is DefineZoneResult.DeliveryFailed -> result.reason
-                                is DefineZoneResult.FirmwareError -> "Firmware error ${result.name} (${result.code})"
-                                is DefineZoneResult.Success -> null
-                            }
-                        )
-                    }
-                    return@launch
-                }
-            }
-
-            val prefix = if (selectedType == ZoneAreaType.AVAILABLE) AVAILABLE_ZONE_PREFIX else NO_GO_ZONE_PREFIX
-            val validIds = zonesToSave.indices.map { "$prefix$it" }.toSet()
-            defineZoneUseCase.getZoneIdsByPrefix(prefix)
-                .filter { it !in validIds }
-                .forEach { staleId ->
-                    defineZoneUseCase.deleteZoneById(staleId)
-                }
+            defineZoneUseCase.saveAvailableZonesLocally(availableZonesToSave)
+            defineZoneUseCase.saveNoGoZonesLocally(noGoZonesToSave)
 
             _uiState.update {
                 it.copy(
                     isSaving = false,
-                    statusMessage = if (selectedType == ZoneAreaType.AVAILABLE) {
-                        "Available zones saved (${zonesToSave.size})"
-                    } else {
-                        "No-Go zones saved (${zonesToSave.size})"
-                    }
+                    statusMessage = "Zones saved locally"
                 )
             }
         }
@@ -580,14 +550,12 @@ class ZoneViewModel @Inject constructor(
 
         when (val result = moveMowerUseCase.moveTo(sessionId = sessionId, target = movementTarget, zone = null)) {
             MoveMowerResult.Success -> {
-                val refreshedPosition = readCurrentMowerPositionUseCase.read().getOrNull()
                 _uiState.update {
                     it.copy(
                         destinationMarker = movementTarget,
                         lastMoveVectorDxMm = vectorDxMm,
                         lastMoveVectorDyMm = vectorDyMm,
                         lastMoveDistanceMm = distanceMm,
-                        mowerPosition = refreshedPosition ?: it.mowerPosition,
                         statusMessage = if (clampedByNoGo) {
                             "No-Go boundary reached"
                         } else if (clampedByAvailable) {
@@ -854,9 +822,7 @@ class ZoneViewModel @Inject constructor(
         positionPollingJob = viewModelScope.launch {
             while (isActive && activeSessionId != null && _uiState.value.isNavigationMode) {
                 readCurrentMowerPositionUseCase.read().getOrNull()?.let { position ->
-                    _uiState.update { current ->
-                        current.copy(mowerPosition = position)
-                    }
+                    updateMowerPosition(position)
                 }
                 delay(POSITION_POLL_INTERVAL_MS)
             }
@@ -896,6 +862,12 @@ class ZoneViewModel @Inject constructor(
     private fun stopAutoConnectLoop() {
         autoConnectJob?.cancel()
         autoConnectJob = null
+    }
+
+    private suspend fun refreshCurrentMowerPosition() {
+        readCurrentMowerPositionUseCase.read().getOrNull()?.let { position ->
+            updateMowerPosition(position)
+        }
     }
 
     private fun persistSelectedZonesDraftDebounced() {
@@ -1005,6 +977,40 @@ class ZoneViewModel @Inject constructor(
         return state.copy(selectedZoneIndex = state.selectedZoneIndex.coerceIn(0, zones.lastIndex))
     }
 
+    private fun hasActiveMovementTarget(state: ZoneUiState): Boolean {
+        val destination = state.destinationMarker ?: return false
+        val mower = state.mowerPosition ?: return true
+        val distanceMm = hypot(
+            (destination.xMm - mower.xMm).toDouble(),
+            (destination.yMm - mower.yMm).toDouble()
+        )
+        return distanceMm > ARRIVAL_THRESHOLD_MM
+    }
+
+    private fun updateMowerPosition(position: Point2dMm) {
+        _uiState.update { current ->
+            val destination = current.destinationMarker
+            if (destination == null) {
+                return@update current.copy(mowerPosition = position)
+            }
+
+            val distanceMm = hypot(
+                (destination.xMm - position.xMm).toDouble(),
+                (destination.yMm - position.yMm).toDouble()
+            )
+
+            if (distanceMm <= ARRIVAL_THRESHOLD_MM) {
+                current.copy(
+                    mowerPosition = position,
+                    destinationMarker = null,
+                    statusMessage = "Destination reached"
+                )
+            } else {
+                current.copy(mowerPosition = position)
+            }
+        }
+    }
+
     private fun defaultAvailableId(index: Int): String = "$AVAILABLE_ZONE_PREFIX$index"
 
     private fun defaultNoGoId(index: Int): String = "$NO_GO_ZONE_PREFIX$index"
@@ -1080,6 +1086,7 @@ class ZoneViewModel @Inject constructor(
         const val DRAFT_PERSIST_DEBOUNCE_MS = 250L
         const val NO_GO_STOP_MARGIN_T = 0.002
         const val AVAILABLE_STOP_MARGIN_T = 0.002
+        const val ARRIVAL_THRESHOLD_MM = 100.0
         const val AUTO_CONNECT_RETRY_MS = 2_000L
         const val AVAILABLE_ZONE_PREFIX = "zone-available-"
         const val NO_GO_ZONE_PREFIX = "zone-no-go-"

@@ -207,6 +207,7 @@
             border-radius: 12px;
             background: linear-gradient(#fcfdff, #f4f7fb);
             display: block;
+            cursor: grab;
         }
 
         .tag-list {
@@ -444,12 +445,26 @@
         let dragMoved = false;
         let mowerDragMoved = false;
 
+        // Viewport state for pan/zoom
+        let viewOffset = { x: 0, y: 0 };
+        let viewScale = 1.0;
+        const VIEW_SCALE_MIN = 0.25;
+        const VIEW_SCALE_MAX = 8.0;
+        let isPanning = false;
+        let panMoved = false;
+        let panStart = { x: 0, y: 0 };
+        let panOffsetStart = { x: 0, y: 0 };
+
         function mapToScreen(point) {
             const padding = 40;
             const width = mapCanvas.width - padding * 2;
             const height = mapCanvas.height - padding * 2;
-            const x = padding + ((point.xMm - world.minX) / (world.maxX - world.minX)) * width;
-            const y = mapCanvas.height - padding - ((point.yMm - world.minY) / (world.maxY - world.minY)) * height;
+            const baseX = padding + ((point.xMm - world.minX) / (world.maxX - world.minX)) * width;
+            const baseY = mapCanvas.height - padding - ((point.yMm - world.minY) / (world.maxY - world.minY)) * height;
+            const cx = mapCanvas.width / 2;
+            const cy = mapCanvas.height / 2;
+            const x = cx + (baseX - cx) * viewScale + viewOffset.x;
+            const y = cy + (baseY - cy) * viewScale + viewOffset.y;
             return { x, y };
         }
 
@@ -458,12 +473,18 @@
             const px = (screenX - rect.left) * (mapCanvas.width / rect.width);
             const py = (screenY - rect.top) * (mapCanvas.height / rect.height);
 
+            // Reverse viewport transform
+            const cx = mapCanvas.width / 2;
+            const cy = mapCanvas.height / 2;
+            const basePx = (px - viewOffset.x - cx) / viewScale + cx;
+            const basePy = (py - viewOffset.y - cy) / viewScale + cy;
+
             const padding = 40;
             const width = mapCanvas.width - padding * 2;
             const height = mapCanvas.height - padding * 2;
 
-            const xNorm = Math.max(0, Math.min(1, (px - padding) / width));
-            const yNorm = Math.max(0, Math.min(1, (mapCanvas.height - padding - py) / height));
+            const xNorm = (basePx - padding) / width;
+            const yNorm = (mapCanvas.height - padding - basePy) / height;
 
             return {
                 xMm: Math.round(world.minX + xNorm * (world.maxX - world.minX)),
@@ -569,14 +590,14 @@
             }
 
             if (zoneDragMode === 'handle' && draggingZoneHandleIndex !== null) {
-                const clampedPoint = clampToWorld(currentMapPoint);
+                const snapped = { xMm: Math.round(currentMapPoint.xMm), yMm: Math.round(currentMapPoint.yMm) };
                 const previous = zone.vertices[draggingZoneHandleIndex];
-                if (!previous || previous.xMm !== clampedPoint.xMm || previous.yMm !== clampedPoint.yMm) {
+                if (!previous || previous.xMm !== snapped.xMm || previous.yMm !== snapped.yMm) {
                     zoneDragMoved = true;
                 }
-                zone.vertices[draggingZoneHandleIndex] = clampedPoint;
-                zoneCenterXInput.value = clampedPoint.xMm;
-                zoneCenterYInput.value = clampedPoint.yMm;
+                zone.vertices[draggingZoneHandleIndex] = snapped;
+                zoneCenterXInput.value = snapped.xMm;
+                zoneCenterYInput.value = snapped.yMm;
                 renderMap();
                 return;
             }
@@ -593,9 +614,9 @@
                 return;
             }
 
-            const shifted = zone.vertices.map((vertex) => clampToWorld({
-                xMm: vertex.xMm + deltaX,
-                yMm: vertex.yMm + deltaY
+            const shifted = zone.vertices.map((vertex) => ({
+                xMm: Math.round(vertex.xMm + deltaX),
+                yMm: Math.round(vertex.yMm + deltaY)
             }));
 
             const changed = shifted.some((vertex, index) => {
@@ -626,7 +647,7 @@
                 return;
             }
 
-            const response = await fetch(`/api/v1/emulator/zones/${encodeURIComponent(zone.id)}`, {
+            const response = await fetch(`/api/v1/ui/zones/${encodeURIComponent(zone.id)}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -645,21 +666,21 @@
                 return;
             }
 
-            const point = screenToMap(clientX, clientY);
-            const clamped = clampToWorld(point);
+            const raw = screenToMap(clientX, clientY);
+            const point = { xMm: Math.round(raw.xMm), yMm: Math.round(raw.yMm) };
             const tag = tags.find((currentTag) => currentTag.id === draggingTagId);
             if (!tag) {
                 return;
             }
 
-            if (tag.xMm !== clamped.xMm || tag.yMm !== clamped.yMm) {
+            if (tag.xMm !== point.xMm || tag.yMm !== point.yMm) {
                 dragMoved = true;
             }
 
-            tag.xMm = clamped.xMm;
-            tag.yMm = clamped.yMm;
-            tagX.value = clamped.xMm;
-            tagY.value = clamped.yMm;
+            tag.xMm = point.xMm;
+            tag.yMm = point.yMm;
+            tagX.value = point.xMm;
+            tagY.value = point.yMm;
             renderMap();
             renderTagList();
         }
@@ -673,7 +694,7 @@
                 return;
             }
 
-            const response = await fetch(`/api/v1/emulator/tags/${encodeURIComponent(tag.id)}`, {
+            const response = await fetch(`/api/v1/ui/tags/${encodeURIComponent(tag.id)}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ xMm: tag.xMm, yMm: tag.yMm })
@@ -689,15 +710,15 @@
                 return;
             }
 
-            const point = screenToMap(clientX, clientY);
-            const clamped = clampToWorld(point);
+            const raw = screenToMap(clientX, clientY);
+            const point = { xMm: Math.round(raw.xMm), yMm: Math.round(raw.yMm) };
             const previous = latestState.position || { xMm: 0, yMm: 0 };
-            if (previous.xMm !== clamped.xMm || previous.yMm !== clamped.yMm) {
+            if (previous.xMm !== point.xMm || previous.yMm !== point.yMm) {
                 mowerDragMoved = true;
             }
 
-            latestState.position = clamped;
-            positionLine.textContent = `Position: x=${clamped.xMm} mm, y=${clamped.yMm} mm`;
+            latestState.position = point;
+            positionLine.textContent = `Position: x=${point.xMm} mm, y=${point.yMm} mm`;
             renderMap();
         }
 
@@ -706,7 +727,7 @@
                 return;
             }
 
-            const response = await fetch('/api/v1/emulator/mower-position', {
+            const response = await fetch('/api/v1/ui/mower-position', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -722,25 +743,54 @@
 
         function drawGrid() {
             mapCtx.clearRect(0, 0, mapCanvas.width, mapCanvas.height);
-
             mapCtx.fillStyle = '#f8fbff';
             mapCtx.fillRect(0, 0, mapCanvas.width, mapCanvas.height);
+
+            // Compute visible world range from canvas corners
+            const padding = 40;
+            const gw = mapCanvas.width - padding * 2;
+            const gh = mapCanvas.height - padding * 2;
+            const cx = mapCanvas.width / 2;
+            const cy = mapCanvas.height / 2;
+            function canvasToWorld(px, py) {
+                const basePx = (px - viewOffset.x - cx) / viewScale + cx;
+                const basePy = (py - viewOffset.y - cy) / viewScale + cy;
+                return {
+                    xMm: world.minX + ((basePx - padding) / gw) * (world.maxX - world.minX),
+                    yMm: world.minY + ((mapCanvas.height - padding - basePy) / gh) * (world.maxY - world.minY)
+                };
+            }
+            const visTopLeft = canvasToWorld(0, 0);
+            const visBottomRight = canvasToWorld(mapCanvas.width, mapCanvas.height);
+            const rangeX = visBottomRight.xMm - visTopLeft.xMm;
+
+            // Adaptive step: keep line count reasonable
+            const candidates = [100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000];
+            let step = candidates[candidates.length - 1];
+            for (const s of candidates) {
+                if (rangeX / s <= 60) { step = s; break; }
+            }
+
+            const minX = Math.floor(visTopLeft.xMm / step) * step;
+            const maxX = Math.ceil(visBottomRight.xMm / step) * step;
+            const minY = Math.floor(visBottomRight.yMm / step) * step;
+            const maxY = Math.ceil(visTopLeft.yMm / step) * step;
 
             mapCtx.strokeStyle = '#e1e8f0';
             mapCtx.lineWidth = 1;
 
-            for (let x = 0; x <= 6000; x += 500) {
-                const p0 = mapToScreen({ xMm: x, yMm: 0 });
-                const p1 = mapToScreen({ xMm: x, yMm: 4500 });
+            for (let x = minX; x <= maxX; x += step) {
+                const p0 = mapToScreen({ xMm: x, yMm: minY });
+                const p1 = mapToScreen({ xMm: x, yMm: maxY });
                 mapCtx.beginPath();
                 mapCtx.moveTo(p0.x, p0.y);
                 mapCtx.lineTo(p1.x, p1.y);
                 mapCtx.stroke();
             }
 
-            for (let y = 0; y <= 4500; y += 500) {
-                const p0 = mapToScreen({ xMm: 0, yMm: y });
-                const p1 = mapToScreen({ xMm: 6000, yMm: y });
+            for (let y = minY; y <= maxY; y += step) {
+                const p0 = mapToScreen({ xMm: minX, yMm: y });
+                const p1 = mapToScreen({ xMm: maxX, yMm: y });
                 mapCtx.beginPath();
                 mapCtx.moveTo(p0.x, p0.y);
                 mapCtx.lineTo(p1.x, p1.y);
@@ -749,7 +799,10 @@
         }
 
         function drawZones() {
-            for (const zone of zones) {
+            // Draw available zones first (bottom layer), no-go zones on top
+            const availableZones = zones.filter((zone) => String(zone.areaType || '').toUpperCase() !== 'NO_GO');
+            const noGoZones = zones.filter((zone) => String(zone.areaType || '').toUpperCase() === 'NO_GO');
+            for (const zone of [...availableZones, ...noGoZones]) {
                 if (!Array.isArray(zone.vertices) || zone.vertices.length < 3) {
                     continue;
                 }
@@ -943,7 +996,7 @@
         }
 
         async function fetchState() {
-            const response = await fetch('/api/v1/emulator/state');
+            const response = await fetch('/api/v1/ui/state');
             if (!response.ok) throw new Error('Failed to load state');
             const serverState = await response.json();
             if (isDraggingMower) {
@@ -1010,7 +1063,7 @@
         }
 
         async function fetchTags() {
-            const response = await fetch('/api/v1/emulator/tags');
+            const response = await fetch('/api/v1/ui/tags');
             if (!response.ok) throw new Error('Failed to load tags');
             const payload = await response.json();
             tags = payload.tags || [];
@@ -1021,11 +1074,12 @@
         function toRectangleVertices(center, widthMm, heightMm) {
             const halfWidth = Math.round(widthMm / 2);
             const halfHeight = Math.round(heightMm / 2);
-            const topLeft = clampToWorld({ xMm: center.xMm - halfWidth, yMm: center.yMm - halfHeight });
-            const topRight = clampToWorld({ xMm: center.xMm + halfWidth, yMm: center.yMm - halfHeight });
-            const bottomRight = clampToWorld({ xMm: center.xMm + halfWidth, yMm: center.yMm + halfHeight });
-            const bottomLeft = clampToWorld({ xMm: center.xMm - halfWidth, yMm: center.yMm + halfHeight });
-            return [topLeft, topRight, bottomRight, bottomLeft];
+            return [
+                { xMm: center.xMm - halfWidth, yMm: center.yMm - halfHeight },
+                { xMm: center.xMm + halfWidth, yMm: center.yMm - halfHeight },
+                { xMm: center.xMm + halfWidth, yMm: center.yMm + halfHeight },
+                { xMm: center.xMm - halfWidth, yMm: center.yMm + halfHeight }
+            ];
         }
 
         function renderZoneList() {
@@ -1061,7 +1115,7 @@
                 removeBtn.className = 'danger';
                 removeBtn.textContent = 'Delete';
                 removeBtn.addEventListener('click', async () => {
-                    await fetch(`/api/v1/emulator/zones/${encodeURIComponent(zone.id)}`, { method: 'DELETE' });
+                    await fetch(`/api/v1/ui/zones/${encodeURIComponent(zone.id)}`, { method: 'DELETE' });
                     await refresh();
                 });
 
@@ -1072,16 +1126,16 @@
         }
 
         async function addZone() {
-            const center = clampToWorld({
+            const center = {
                 xMm: Number(zoneCenterXInput.value),
                 yMm: Number(zoneCenterYInput.value)
-            });
-            const widthMm = Math.max(100, Math.min(6000, Number(zoneWidthInput.value) || 1200));
-            const heightMm = Math.max(100, Math.min(4500, Number(zoneHeightInput.value) || 900));
+            };
+            const widthMm = Math.max(100, Number(zoneWidthInput.value) || 1200);
+            const heightMm = Math.max(100, Number(zoneHeightInput.value) || 900);
             const areaType = String(zoneTypeInput.value || 'AVAILABLE').toUpperCase();
             const vertices = toRectangleVertices(center, widthMm, heightMm);
 
-            const response = await fetch('/api/v1/emulator/zones', {
+            const response = await fetch('/api/v1/ui/zones', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ areaType, vertices })
@@ -1097,7 +1151,7 @@
         }
 
         async function clearZones() {
-            const response = await fetch('/api/v1/emulator/zones', { method: 'DELETE' });
+            const response = await fetch('/api/v1/ui/zones', { method: 'DELETE' });
             if (!response.ok) {
                 alert('Failed to clear zones');
                 return;
@@ -1127,7 +1181,7 @@
                 removeBtn.className = 'danger';
                 removeBtn.textContent = 'Delete';
                 removeBtn.addEventListener('click', async () => {
-                    await fetch(`/api/v1/emulator/tags/${encodeURIComponent(tag.id)}`, { method: 'DELETE' });
+                    await fetch(`/api/v1/ui/tags/${encodeURIComponent(tag.id)}`, { method: 'DELETE' });
                     await refresh();
                 });
 
@@ -1149,7 +1203,7 @@
                 return;
             }
 
-            const response = await fetch('/api/v1/emulator/tags', {
+            const response = await fetch('/api/v1/ui/tags', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
@@ -1167,7 +1221,7 @@
 
         async function clearTags() {
             for (const tag of [...tags]) {
-                await fetch(`/api/v1/emulator/tags/${encodeURIComponent(tag.id)}`, { method: 'DELETE' });
+                await fetch(`/api/v1/ui/tags/${encodeURIComponent(tag.id)}`, { method: 'DELETE' });
             }
             await refresh();
         }
@@ -1180,6 +1234,16 @@
             const raw = getCanvasPointFromEvent(event);
             const mapPoint = screenToMap(raw.clientX, raw.clientY);
             const screenPoint = mapToScreen(mapPoint);
+
+            // Mower has highest hit priority — always draggable regardless of what is behind it
+            const hitMower = findMowerNearPoint(screenPoint, 20);
+            if (hitMower) {
+                isDraggingMower = true;
+                mowerDragMoved = false;
+                mapCanvas.style.cursor = 'grabbing';
+                moveDraggedMower(raw.clientX, raw.clientY);
+                return;
+            }
 
             const handleHit = findZoneHandleNearPoint(screenPoint, 14);
             if (handleHit) {
@@ -1220,15 +1284,16 @@
                 return;
             }
 
-            const hitMower = findMowerNearPoint(screenPoint, 20);
-            if (!hitMower) {
-                return;
-            }
-
-            isDraggingMower = true;
-            mowerDragMoved = false;
+            // Nothing hit — start panning the map
+            const rect = mapCanvas.getBoundingClientRect();
+            isPanning = true;
+            panMoved = false;
+            panStart = {
+                x: (raw.clientX - rect.left) * (mapCanvas.width / rect.width),
+                y: (raw.clientY - rect.top) * (mapCanvas.height / rect.height)
+            };
+            panOffsetStart = { ...viewOffset };
             mapCanvas.style.cursor = 'grabbing';
-            moveDraggedMower(raw.clientX, raw.clientY);
         });
 
         mapCanvas.addEventListener('mousemove', (event) => {
@@ -1245,9 +1310,27 @@
                 moveDraggedMower(raw.clientX, raw.clientY);
                 return;
             }
+            if (isPanning) {
+                const rect = mapCanvas.getBoundingClientRect();
+                const px = (raw.clientX - rect.left) * (mapCanvas.width / rect.width);
+                const py = (raw.clientY - rect.top) * (mapCanvas.height / rect.height);
+                const dx = px - panStart.x;
+                const dy = py - panStart.y;
+                if (Math.hypot(dx, dy) > 3) {
+                    panMoved = true;
+                }
+                viewOffset.x = panOffsetStart.x + dx;
+                viewOffset.y = panOffsetStart.y + dy;
+                renderMap();
+                return;
+            }
 
             const mapPoint = screenToMap(raw.clientX, raw.clientY);
             const screenPoint = mapToScreen(mapPoint);
+            if (findMowerNearPoint(screenPoint, 20)) {
+                mapCanvas.style.cursor = 'grab';
+                return;
+            }
             if (findZoneHandleNearPoint(screenPoint, 14)) {
                 mapCanvas.style.cursor = 'pointer';
                 return;
@@ -1256,17 +1339,24 @@
                 mapCanvas.style.cursor = 'grab';
                 return;
             }
-            if (findTagNearPoint(screenPoint, 16) || findMowerNearPoint(screenPoint, 20)) {
+            if (findTagNearPoint(screenPoint, 16)) {
                 mapCanvas.style.cursor = 'grab';
                 return;
             }
-            mapCanvas.style.cursor = 'crosshair';
+            mapCanvas.style.cursor = 'grab';
         });
 
         mapCanvas.addEventListener('mouseleave', async () => {
+            if (isPanning) {
+                isPanning = false;
+                panMoved = false;
+                mapCanvas.style.cursor = 'grab';
+                return;
+            }
+
             if (isDraggingZone) {
                 isDraggingZone = false;
-                mapCanvas.style.cursor = 'crosshair';
+                mapCanvas.style.cursor = 'grab';
                 try {
                     await persistDraggedZone();
                 } catch (error) {
@@ -1285,7 +1375,7 @@
 
             if (isDraggingTag) {
                 isDraggingTag = false;
-                mapCanvas.style.cursor = 'crosshair';
+                mapCanvas.style.cursor = 'grab';
                 try {
                     await persistDraggedTagPosition();
                 } catch (error) {
@@ -1303,7 +1393,7 @@
             }
 
             isDraggingMower = false;
-            mapCanvas.style.cursor = 'crosshair';
+            mapCanvas.style.cursor = 'grab';
             try {
                 await persistDraggedMowerPosition();
             } catch (error) {
@@ -1314,13 +1404,29 @@
             }
         });
 
+        mapCanvas.addEventListener('wheel', (event) => {
+            event.preventDefault();
+            const rect = mapCanvas.getBoundingClientRect();
+            const px = (event.clientX - rect.left) * (mapCanvas.width / rect.width);
+            const py = (event.clientY - rect.top) * (mapCanvas.height / rect.height);
+            const zoomFactor = event.deltaY < 0 ? 1.15 : 1 / 1.15;
+            const newScale = Math.max(VIEW_SCALE_MIN, Math.min(VIEW_SCALE_MAX, viewScale * zoomFactor));
+            const ratio = newScale / viewScale;
+            const cx = mapCanvas.width / 2;
+            const cy = mapCanvas.height / 2;
+            viewOffset.x = (px - cx) * (1 - ratio) + viewOffset.x * ratio;
+            viewOffset.y = (py - cy) * (1 - ratio) + viewOffset.y * ratio;
+            viewScale = newScale;
+            renderMap();
+        }, { passive: false });
+
         mapCanvas.addEventListener('mouseup', async (event) => {
             const raw = getCanvasPointFromEvent(event);
             const mapPoint = screenToMap(raw.clientX, raw.clientY);
 
             if (isDraggingZone) {
                 isDraggingZone = false;
-                mapCanvas.style.cursor = 'crosshair';
+                mapCanvas.style.cursor = 'grab';
                 try {
                     await persistDraggedZone();
                 } catch (error) {
@@ -1339,7 +1445,7 @@
 
             if (isDraggingTag) {
                 isDraggingTag = false;
-                mapCanvas.style.cursor = 'crosshair';
+                mapCanvas.style.cursor = 'grab';
                 try {
                     await persistDraggedTagPosition();
                 } catch (error) {
@@ -1354,7 +1460,7 @@
 
             if (isDraggingMower) {
                 isDraggingMower = false;
-                mapCanvas.style.cursor = 'crosshair';
+                mapCanvas.style.cursor = 'grab';
                 try {
                     await persistDraggedMowerPosition();
                 } catch (error) {
@@ -1366,16 +1472,35 @@
                 return;
             }
 
-            tagX.value = mapPoint.xMm;
-            tagY.value = mapPoint.yMm;
-            zoneCenterXInput.value = mapPoint.xMm;
-            zoneCenterYInput.value = mapPoint.yMm;
+            if (isPanning) {
+                const didPan = panMoved;
+                isPanning = false;
+                panMoved = false;
+                mapCanvas.style.cursor = 'grab';
+                if (!didPan) {
+                    // Simple click — fill tag/zone coordinate inputs
+                    tagX.value = mapPoint.xMm;
+                    tagY.value = mapPoint.yMm;
+                    zoneCenterXInput.value = mapPoint.xMm;
+                    zoneCenterYInput.value = mapPoint.yMm;
+                }
+            }
         });
 
         mapCanvas.addEventListener('touchstart', (event) => {
             const raw = getCanvasPointFromEvent(event);
             const mapPoint = screenToMap(raw.clientX, raw.clientY);
             const screenPoint = mapToScreen(mapPoint);
+
+            // Mower has highest hit priority
+            const hitMower = findMowerNearPoint(screenPoint, 22);
+            if (hitMower) {
+                event.preventDefault();
+                isDraggingMower = true;
+                mowerDragMoved = false;
+                moveDraggedMower(raw.clientX, raw.clientY);
+                return;
+            }
 
             const handleHit = findZoneHandleNearPoint(screenPoint, 18);
             if (handleHit) {
@@ -1416,15 +1541,16 @@
                 return;
             }
 
-            const hitMower = findMowerNearPoint(screenPoint, 22);
-            if (!hitMower) {
-                return;
-            }
-
+            // Nothing hit — start panning
             event.preventDefault();
-            isDraggingMower = true;
-            mowerDragMoved = false;
-            moveDraggedMower(raw.clientX, raw.clientY);
+            const rect = mapCanvas.getBoundingClientRect();
+            isPanning = true;
+            panMoved = false;
+            panStart = {
+                x: (raw.clientX - rect.left) * (mapCanvas.width / rect.width),
+                y: (raw.clientY - rect.top) * (mapCanvas.height / rect.height)
+            };
+            panOffsetStart = { ...viewOffset };
         }, { passive: false });
 
         mapCanvas.addEventListener('touchmove', (event) => {
@@ -1442,13 +1568,28 @@
                 return;
             }
 
-            if (!isDraggingMower) {
+            if (isDraggingMower) {
+                event.preventDefault();
+                const raw = getCanvasPointFromEvent(event);
+                moveDraggedMower(raw.clientX, raw.clientY);
                 return;
             }
 
-            event.preventDefault();
-            const raw = getCanvasPointFromEvent(event);
-            moveDraggedMower(raw.clientX, raw.clientY);
+            if (isPanning) {
+                event.preventDefault();
+                const raw = getCanvasPointFromEvent(event);
+                const rect = mapCanvas.getBoundingClientRect();
+                const px = (raw.clientX - rect.left) * (mapCanvas.width / rect.width);
+                const py = (raw.clientY - rect.top) * (mapCanvas.height / rect.height);
+                const dx = px - panStart.x;
+                const dy = py - panStart.y;
+                if (Math.hypot(dx, dy) > 3) {
+                    panMoved = true;
+                }
+                viewOffset.x = panOffsetStart.x + dx;
+                viewOffset.y = panOffsetStart.y + dy;
+                renderMap();
+            }
         }, { passive: false });
 
         mapCanvas.addEventListener('touchend', async () => {
@@ -1484,25 +1625,29 @@
                 return;
             }
 
-            if (!isDraggingMower) {
+            if (isDraggingMower) {
+                isDraggingMower = false;
+                try {
+                    await persistDraggedMowerPosition();
+                } catch (error) {
+                    alert(error.message);
+                } finally {
+                    mowerDragMoved = false;
+                    renderMap();
+                }
                 return;
             }
 
-            isDraggingMower = false;
-            try {
-                await persistDraggedMowerPosition();
-            } catch (error) {
-                alert(error.message);
-            } finally {
-                mowerDragMoved = false;
-                renderMap();
+            if (isPanning) {
+                isPanning = false;
+                panMoved = false;
             }
         });
 
         async function applyPhysics() {
             const speedInput = document.getElementById('speedInput');
             const rotSpeedInput = document.getElementById('rotSpeedInput');
-            const response = await fetch('/api/v1/emulator/settings', {
+            const response = await fetch('/api/v1/ui/settings', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1522,7 +1667,7 @@
         document.getElementById('applyPhysicsBtn').addEventListener('click', () => applyPhysics().catch((error) => alert(error.message)));
         document.getElementById('clearCommandLogBtn').addEventListener('click', () => {
             lastRenderedCommandCount = 0;
-            fetch('/api/v1/emulator/command-log', { method: 'DELETE' })
+            fetch('/api/v1/ui/command-log', { method: 'DELETE' })
                 .then(() => renderCommandLog([]))
                 .catch(() => { });
         });

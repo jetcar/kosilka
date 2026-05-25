@@ -38,6 +38,8 @@ Provide safe, deterministic mower navigation while keeping zone editing flexible
 - Tap: one `MOVE_TO`.
 - Hold: throttled `MOVE_TO` stream (latest pointer wins).
 - Stop: sends hold-position command and clears destination marker.
+- Zone save is local-only in the app; it does not send zone create/update/delete commands to emulator/device.
+- Emulator/device control from Zone screen is limited to mower movement commands.
 
 ## Verification Checklist
 

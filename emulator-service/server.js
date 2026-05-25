@@ -614,6 +614,8 @@ function createDebugSnapshot(options = {}) {
 async function handleRequest(req, res) {
     const url = new URL(req.url, `http://localhost:${PORT}`);
     const path = url.pathname;
+    const isUiRoute = (suffix) => path === `/api/v1/ui${suffix}` || path === `/api/v1/emulator${suffix}`;
+    const isUiRoutePrefix = (suffixPrefix) => path.startsWith(`/api/v1/ui${suffixPrefix}`) || path.startsWith(`/api/v1/emulator${suffixPrefix}`);
 
     if (req.method === 'GET' && (path === '/' || path === '/ui')) {
         serveUi(res);
@@ -722,7 +724,7 @@ async function handleRequest(req, res) {
         return;
     }
 
-    if (req.method === 'GET' && path === '/api/v1/emulator/state') {
+    if (req.method === 'GET' && isUiRoute('/state')) {
         sendJson(res, 200, {
             activeScenario: currentScenarioType(),
             position: { ...state.position },
@@ -739,12 +741,12 @@ async function handleRequest(req, res) {
         return;
     }
 
-    if (req.method === 'GET' && path === '/api/v1/emulator/zones') {
+    if (req.method === 'GET' && isUiRoute('/zones')) {
         sendJson(res, 200, { zones: state.zones.map((zone) => ({ ...zone })) });
         return;
     }
 
-    if (req.method === 'POST' && path === '/api/v1/emulator/zones') {
+    if (req.method === 'POST' && isUiRoute('/zones')) {
         const body = await readJson(req);
         const zoneInput = normalizeZoneInput(body);
         const zone = upsertZone({
@@ -759,7 +761,7 @@ async function handleRequest(req, res) {
         return;
     }
 
-    if (req.method === 'DELETE' && path === '/api/v1/emulator/zones') {
+    if (req.method === 'DELETE' && isUiRoute('/zones')) {
         const deleted = state.zones.length;
         state.zones = [];
         persistStateSafely();
@@ -767,8 +769,8 @@ async function handleRequest(req, res) {
         return;
     }
 
-    if (req.method === 'PUT' && path.startsWith('/api/v1/emulator/zones/')) {
-        const zoneId = decodeURIComponent(path.replace('/api/v1/emulator/zones/', ''));
+    if (req.method === 'PUT' && isUiRoutePrefix('/zones/')) {
+        const zoneId = decodeURIComponent(path.replace('/api/v1/ui/zones/', '').replace('/api/v1/emulator/zones/', ''));
         const body = await readJson(req);
         const existing = state.zones.find((zone) => zone.id === zoneId);
         if (!existing) {
@@ -795,8 +797,8 @@ async function handleRequest(req, res) {
         return;
     }
 
-    if (req.method === 'DELETE' && path.startsWith('/api/v1/emulator/zones/')) {
-        const zoneId = decodeURIComponent(path.replace('/api/v1/emulator/zones/', ''));
+    if (req.method === 'DELETE' && isUiRoutePrefix('/zones/')) {
+        const zoneId = decodeURIComponent(path.replace('/api/v1/ui/zones/', '').replace('/api/v1/emulator/zones/', ''));
         const before = state.zones.length;
         state.zones = state.zones.filter((zone) => zone.id !== zoneId);
         persistStateSafely();
@@ -804,7 +806,7 @@ async function handleRequest(req, res) {
         return;
     }
 
-    if (req.method === 'POST' && path === '/api/v1/emulator/state/save') {
+    if (req.method === 'POST' && isUiRoute('/state/save')) {
         const body = await readJson(req);
         const targetPath = body.path ? String(body.path) : STATE_FILE_PATH;
         saveStateToFile(targetPath);
@@ -812,7 +814,7 @@ async function handleRequest(req, res) {
         return;
     }
 
-    if (req.method === 'POST' && path === '/api/v1/emulator/state/load') {
+    if (req.method === 'POST' && isUiRoute('/state/load')) {
         const body = await readJson(req);
         const targetPath = body.path ? String(body.path) : STATE_FILE_PATH;
         loadStateFromFile(targetPath);
@@ -826,12 +828,12 @@ async function handleRequest(req, res) {
         return;
     }
 
-    if (req.method === 'GET' && path === '/api/v1/emulator/tags') {
+    if (req.method === 'GET' && isUiRoute('/tags')) {
         sendJson(res, 200, { tags: [...state.tags] });
         return;
     }
 
-    if (req.method === 'POST' && path === '/api/v1/emulator/tags') {
+    if (req.method === 'POST' && isUiRoute('/tags')) {
         const body = await readJson(req);
         const tagInput = normalizeTagInput(body);
         const tag = {
@@ -843,16 +845,16 @@ async function handleRequest(req, res) {
         return;
     }
 
-    if (req.method === 'DELETE' && path.startsWith('/api/v1/emulator/tags/')) {
-        const tagId = decodeURIComponent(path.replace('/api/v1/emulator/tags/', ''));
+    if (req.method === 'DELETE' && isUiRoutePrefix('/tags/')) {
+        const tagId = decodeURIComponent(path.replace('/api/v1/ui/tags/', '').replace('/api/v1/emulator/tags/', ''));
         const before = state.tags.length;
         state.tags = state.tags.filter((tag) => tag.id !== tagId);
         sendJson(res, 200, { ok: true, deleted: before - state.tags.length });
         return;
     }
 
-    if (req.method === 'PUT' && path.startsWith('/api/v1/emulator/tags/')) {
-        const tagId = decodeURIComponent(path.replace('/api/v1/emulator/tags/', ''));
+    if (req.method === 'PUT' && isUiRoutePrefix('/tags/')) {
+        const tagId = decodeURIComponent(path.replace('/api/v1/ui/tags/', '').replace('/api/v1/emulator/tags/', ''));
         const body = await readJson(req);
         const xMm = Number(body.xMm);
         const yMm = Number(body.yMm);
@@ -873,7 +875,7 @@ async function handleRequest(req, res) {
         return;
     }
 
-    if (req.method === 'PUT' && path === '/api/v1/emulator/mower-position') {
+    if (req.method === 'PUT' && isUiRoute('/mower-position')) {
         const body = await readJson(req);
         const xMm = Number(body.xMm);
         const yMm = Number(body.yMm);
@@ -889,7 +891,7 @@ async function handleRequest(req, res) {
         return;
     }
 
-    if (req.method === 'POST' && path === '/api/v1/emulator/scenario/activate') {
+    if (req.method === 'POST' && isUiRoute('/scenario/activate')) {
         const body = await readJson(req);
         const type = String(body.type || 'NORMAL').toUpperCase();
         const durationMs = Math.max(500, Number(body.durationMs) || 5000);
@@ -911,25 +913,25 @@ async function handleRequest(req, res) {
         return;
     }
 
-    if (req.method === 'DELETE' && path === '/api/v1/emulator/command-log') {
+    if (req.method === 'DELETE' && isUiRoute('/command-log')) {
         state.commandLog = [];
         sendJson(res, 200, { ok: true });
         return;
     }
 
-    if (req.method === 'POST' && path === '/api/v1/emulator/navigation/stop') {
+    if (req.method === 'POST' && isUiRoute('/navigation/stop')) {
         state.destination = null;
         sendJson(res, 200, { ok: true, destination: null });
         return;
     }
 
-    if (req.method === 'POST' && path === '/api/v1/emulator/scenario/clear') {
+    if (req.method === 'POST' && isUiRoute('/scenario/clear')) {
         state.scenario = { type: 'NORMAL', untilMs: 0, driftRateMmPerSec: 80 };
         sendJson(res, 200, { ok: true });
         return;
     }
 
-    if (req.method === 'PUT' && path === '/api/v1/emulator/settings') {
+    if (req.method === 'PUT' && isUiRoute('/settings')) {
         const body = await readJson(req);
         if (Number.isFinite(Number(body.speedMmPerSec))) {
             state.speedMmPerSec = Math.max(10, Math.min(5000, Math.round(Number(body.speedMmPerSec))));

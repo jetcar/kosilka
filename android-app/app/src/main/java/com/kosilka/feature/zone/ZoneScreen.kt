@@ -710,18 +710,40 @@ private fun findNearestHandle(
 
 private fun findZoneAtPoint(zones: List<ZoneDraft>, point: Point2dMm): Int? {
     zones.forEachIndexed { index, zone ->
-        if (zone.vertices.isEmpty()) {
+        if (zone.vertices.size < 3) {
             return@forEachIndexed
         }
-        val minX = zone.vertices.minOf { it.xMm }
-        val maxX = zone.vertices.maxOf { it.xMm }
-        val minY = zone.vertices.minOf { it.yMm }
-        val maxY = zone.vertices.maxOf { it.yMm }
-        if (point.xMm in minX..maxX && point.yMm in minY..maxY) {
+        if (isPointInsidePolygon(point, zone.vertices)) {
             return index
         }
     }
     return null
+}
+
+private fun isPointInsidePolygon(point: Point2dMm, vertices: List<Point2dMm>): Boolean {
+    if (vertices.size < 3) {
+        return false
+    }
+
+    var inside = false
+    var previous = vertices.last()
+    vertices.forEach { current ->
+        val pointY = point.yMm.toDouble()
+        val pointX = point.xMm.toDouble()
+        val currentY = current.yMm.toDouble()
+        val previousY = previous.yMm.toDouble()
+        val currentX = current.xMm.toDouble()
+        val previousX = previous.xMm.toDouble()
+
+        val intersects = ((currentY > pointY) != (previousY > pointY)) &&
+            (pointX < ((previousX - currentX) * (pointY - currentY) / (previousY - currentY)) + currentX)
+        if (intersects) {
+            inside = !inside
+        }
+        previous = current
+    }
+
+    return inside
 }
 
 private data class ZoneSelection(

@@ -1,14 +1,14 @@
 {
   "version": 1,
-  "savedAtMs": 1779726810111,
+  "savedAtMs": 1779734143384,
   "scenario": {
     "type": "NORMAL",
     "untilMs": 0,
     "driftRateMmPerSec": 80
   },
   "position": {
-    "xMm": 676,
-    "yMm": 3904
+    "xMm": 1483,
+    "yMm": 2398
   },
   "path": [
     {
@@ -33,35 +33,11 @@
   "leftoverMm": 0,
   "sampleRateHz": 5,
   "speedMmPerSec": 200,
-  "headingDeg": 0,
+  "headingDeg": 180,
   "rotationSpeedDegPerSec": 90,
   "tags": [],
   "nextTagId": 1,
   "zones": [
-    {
-      "id": "emu-zone-1",
-      "areaType": "AVAILABLE",
-      "vertices": [
-        {
-          "xMm": 1400,
-          "yMm": 1550
-        },
-        {
-          "xMm": 2600,
-          "yMm": 1550
-        },
-        {
-          "xMm": 3430,
-          "yMm": 4500
-        },
-        {
-          "xMm": 317,
-          "yMm": 4164
-        }
-      ],
-      "source": "EMULATOR",
-      "updatedAtMs": 1779726781573
-    },
     {
       "id": "emu-zone-2",
       "areaType": "NO_GO",
@@ -71,8 +47,8 @@
           "yMm": 3494
         },
         {
-          "xMm": 2751,
-          "yMm": 3494
+          "xMm": 2764,
+          "yMm": 3446
         },
         {
           "xMm": 2751,
@@ -84,7 +60,7 @@
         }
       ],
       "source": "EMULATOR",
-      "updatedAtMs": 1779726787035
+      "updatedAtMs": 1779733299963
     },
     {
       "id": "emu-zone-3",
@@ -109,7 +85,55 @@
       ],
       "source": "EMULATOR",
       "updatedAtMs": 1779726802507
+    },
+    {
+      "id": "zone-available-0",
+      "areaType": "AVAILABLE",
+      "vertices": [
+        {
+          "xMm": 1561,
+          "yMm": 2096
+        },
+        {
+          "xMm": 2848,
+          "yMm": 2001
+        },
+        {
+          "xMm": 3649,
+          "yMm": 4466
+        },
+        {
+          "xMm": 575,
+          "yMm": 4466
+        }
+      ],
+      "source": "EMULATOR",
+      "updatedAtMs": 1779733312108
+    },
+    {
+      "id": "emu-zone-4",
+      "areaType": "AVAILABLE",
+      "vertices": [
+        {
+          "xMm": 4006,
+          "yMm": 3497
+        },
+        {
+          "xMm": 4232,
+          "yMm": 3621
+        },
+        {
+          "xMm": 4232,
+          "yMm": 3621
+        },
+        {
+          "xMm": 4032,
+          "yMm": 3621
+        }
+      ],
+      "source": "EMULATOR",
+      "updatedAtMs": 1779733965961
     }
   ],
-  "nextZoneId": 4
+  "nextZoneId": 5
 }
