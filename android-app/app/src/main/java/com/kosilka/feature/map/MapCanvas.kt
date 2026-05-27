@@ -3,19 +3,30 @@ package com.kosilka.feature.map
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.dp
+import com.kosilka.domain.model.CoverageSegment
 import com.kosilka.domain.model.Point2dMm
 import com.kosilka.domain.model.Zone
 
@@ -29,37 +40,30 @@ fun MapCanvas(
     var zoom by remember { mutableFloatStateOf(1f) }
     var pan by remember { mutableStateOf(Offset.Zero) }
 
-    Canvas(
+    Box(
         modifier = modifier
             .fillMaxSize()
             .background(Color(0xFFF4F7F5))
-            .pointerInput(Unit) {
-                detectTransformGestures { _, panChange, zoomChange, _ ->
-                    zoom = (zoom * zoomChange).coerceIn(0.5f, 4f)
-                    pan += panChange
-                }
-            }
-            .pointerInput(state.destinationMarker, zoom, pan) {
-                detectTapToMove(
-                    tapEnabled = tapEnabled,
-                    panOffsetPx = pan,
-                    zoom = zoom,
-                    onTapMap = onTapMap
-                )
-            }
     ) {
-        val pxPerMeterAtZoom1 = 120f
-
-        // Anchors
-        state.anchors.forEach { anchor ->
-            val offset = MapCoordinateConverter.mapMmToScreen(
-                mapPoint = Point2dMm(anchor.xMm, anchor.yMm),
-                panOffsetPx = pan,
-                zoom = zoom,
-                pixelsPerMeterAtZoom1 = pxPerMeterAtZoom1
-            )
-            drawCircle(color = Color(0xFF2E7D32), radius = 10f, center = offset)
-        }
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    detectTransformGestures { _, panChange, zoomChange, _ ->
+                        zoom = (zoom * zoomChange).coerceIn(0.5f, 4f)
+                        pan += panChange
+                    }
+                }
+                .pointerInput(state.destinationMarker, zoom, pan) {
+                    detectTapToMove(
+                        tapEnabled = tapEnabled,
+                        panOffsetPx = pan,
+                        zoom = zoom,
+                        onTapMap = onTapMap
+                    )
+                }
+        ) {
+            val pxPerMeterAtZoom1 = 120f
 
         // Available zones (bottom layer)
         drawZoneLayer(
@@ -81,8 +85,58 @@ fun MapCanvas(
             pxPerMeterAtZoom1 = pxPerMeterAtZoom1
         )
 
-        // Coverage overlay (segments)
-        state.coverageSegments.forEach { segment ->
+        // Coverage chunk outlines (drawn above no-go to show the decomposition grid)
+        state.coverageChunks.forEach { chunk ->
+            val topLeft = MapCoordinateConverter.mapMmToScreen(
+                mapPoint = Point2dMm(chunk.cellMinXMm, chunk.cellMaxYMm),
+                panOffsetPx = pan,
+                zoom = zoom,
+                pixelsPerMeterAtZoom1 = pxPerMeterAtZoom1
+            )
+            val bottomRight = MapCoordinateConverter.mapMmToScreen(
+                mapPoint = Point2dMm(chunk.cellMaxXMm, chunk.cellMinYMm),
+                panOffsetPx = pan,
+                zoom = zoom,
+                pixelsPerMeterAtZoom1 = pxPerMeterAtZoom1
+            )
+            val w = bottomRight.x - topLeft.x
+            val h = bottomRight.y - topLeft.y
+            if (w > 0 && h > 0) {
+                drawRect(
+                    color = Color(0xCC4CAF50),
+                    topLeft = topLeft,
+                    size = Size(w, h),
+                    style = Stroke(width = 3f)
+                )
+            }
+        }
+
+        // Planned sweep path inside zones (shown before live coverage)
+        val expectedToRender = selectExpectedSegmentsForRender(state.expectedCoverageSegments)
+        expectedToRender.forEach { segment ->
+            val from = MapCoordinateConverter.mapMmToScreen(
+                mapPoint = Point2dMm(segment.fromXMm, segment.fromYMm),
+                panOffsetPx = pan,
+                zoom = zoom,
+                pixelsPerMeterAtZoom1 = pxPerMeterAtZoom1
+            )
+            val to = MapCoordinateConverter.mapMmToScreen(
+                mapPoint = Point2dMm(segment.toXMm, segment.toYMm),
+                panOffsetPx = pan,
+                zoom = zoom,
+                pixelsPerMeterAtZoom1 = pxPerMeterAtZoom1
+            )
+            drawLine(
+                color = Color(0x8890A4AE),
+                start = from,
+                end = to,
+                strokeWidth = 4f
+            )
+        }
+
+        // Coverage overlay can become very large; render recent tail to keep gestures smooth.
+        val coverageToRender = selectCoverageSegmentsForRender(state.coverageSegments)
+        coverageToRender.forEach { segment ->
             val from = MapCoordinateConverter.mapMmToScreen(
                 mapPoint = Point2dMm(segment.fromXMm, segment.fromYMm),
                 panOffsetPx = pan,
@@ -135,11 +189,42 @@ fun MapCanvas(
             drawCircle(color = Color(0xFFFF9800), radius = 12f, center = offset)
         }
 
-        // Mower marker
-        mowerOffset?.let { offset ->
-            drawCircle(color = Color(0xFFD32F2F), radius = 14f, center = offset)
+            // Mower marker
+            mowerOffset?.let { offset ->
+                drawCircle(color = Color(0xFFD32F2F), radius = 14f, center = offset)
+            }
+        }
+
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilledTonalButton(onClick = { zoom = (zoom * 1.2f).coerceIn(0.5f, 4f) }) {
+                Text("+")
+            }
+            FilledTonalButton(onClick = { zoom = (zoom / 1.2f).coerceIn(0.5f, 4f) }) {
+                Text("-")
+            }
         }
     }
+}
+
+private fun selectCoverageSegmentsForRender(segments: List<CoverageSegment>): List<CoverageSegment> {
+    if (segments.size <= MAX_RENDERED_COVERAGE_SEGMENTS) {
+        return segments
+    }
+    val startIndex = (segments.size - MAX_RENDERED_COVERAGE_SEGMENTS).coerceAtLeast(0)
+    return segments.subList(startIndex, segments.size)
+}
+
+private fun selectExpectedSegmentsForRender(segments: List<CoverageSegment>): List<CoverageSegment> {
+    if (segments.size <= MAX_RENDERED_EXPECTED_SEGMENTS) {
+        return segments
+    }
+    val startIndex = (segments.size - MAX_RENDERED_EXPECTED_SEGMENTS).coerceAtLeast(0)
+    return segments.subList(startIndex, segments.size)
 }
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawZoneLayer(
@@ -213,3 +298,6 @@ private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.detectTa
         }
     }
 }
+
+private const val MAX_RENDERED_COVERAGE_SEGMENTS = 1200
+private const val MAX_RENDERED_EXPECTED_SEGMENTS = 4000

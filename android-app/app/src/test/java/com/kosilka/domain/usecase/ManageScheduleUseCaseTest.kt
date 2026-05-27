@@ -7,6 +7,7 @@ import com.kosilka.data.device.protocol.Envelope
 import com.kosilka.data.device.protocol.IncomingMessage
 import com.kosilka.data.local.dao.ScheduleDao
 import com.kosilka.data.local.entity.ScheduleEntity
+import com.kosilka.domain.model.Point2dMm
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -66,6 +67,10 @@ private class CapturingScheduleDevice : MowerDevice {
     override suspend fun send(envelope: Envelope): Result<Unit> {
         lastEnvelope = envelope
         return Result.success(Unit)
+    }
+
+    override suspend fun readCurrentPosition(): Result<Point2dMm> {
+        return Result.success(Point2dMm(0, 0))
     }
 }
 

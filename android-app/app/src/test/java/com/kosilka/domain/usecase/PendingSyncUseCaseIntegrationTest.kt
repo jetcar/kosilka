@@ -10,6 +10,7 @@ import com.kosilka.data.device.protocol.IncomingMessage
 import com.kosilka.data.device.protocol.ProtocolConstants
 import com.kosilka.data.local.dao.ScheduleDao
 import com.kosilka.data.local.entity.ScheduleEntity
+import com.kosilka.domain.model.Point2dMm
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -136,6 +137,10 @@ private class FakeReconnectMowerDevice : MowerDevice {
         }
 
         return Result.success(Unit)
+    }
+
+    override suspend fun readCurrentPosition(): Result<Point2dMm> {
+        return Result.success(Point2dMm(0, 0))
     }
 }
 

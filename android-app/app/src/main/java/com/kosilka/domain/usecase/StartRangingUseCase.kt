@@ -50,6 +50,8 @@ class StartRangingUseCase @Inject constructor(
         activeSessionId = sessionId
         anchorPositionsById = anchorsById
         latestDistancesByAnchorId.clear()
+        // Reset timeout baseline so a previous run does not immediately trigger position-lost.
+        lastSampleAtMs = 0L
         _state.value = RangingState(isRangingActive = true, isPositionLost = false, latestPosition = null)
 
         val sent = mowerDevice.send(

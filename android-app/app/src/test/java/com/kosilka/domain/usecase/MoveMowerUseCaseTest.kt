@@ -67,4 +67,8 @@ private class FakeMowerDevice : MowerDevice {
         sendCount += 1
         return Result.success(Unit)
     }
+
+    override suspend fun readCurrentPosition(): Result<Point2dMm> {
+        return Result.success(Point2dMm(0, 0))
+    }
 }

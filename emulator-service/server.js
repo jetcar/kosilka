@@ -685,8 +685,8 @@ async function handleRequest(req, res) {
             const targetYMm = Number(payload.targetYMm);
             if (Number.isFinite(targetXMm) && Number.isFinite(targetYMm)) {
                 state.destination = {
-                    xMm: Math.max(0, Math.round(targetXMm)),
-                    yMm: Math.max(0, Math.round(targetYMm))
+                    xMm: Math.round(targetXMm),
+                    yMm: Math.round(targetYMm)
                 };
             }
         } else if (messageType === TYPE.ZONE_SET) {

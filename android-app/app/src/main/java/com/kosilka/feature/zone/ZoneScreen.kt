@@ -38,6 +38,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.kosilka.core.ui.StatusMessageSlot
 import com.kosilka.domain.model.Point2dMm
 import kotlin.math.roundToInt
 
@@ -82,9 +83,7 @@ fun ZoneScreen(
             )
         }
 
-        uiState.statusMessage?.let { message ->
-            Text(message, color = MaterialTheme.colorScheme.error)
-        }
+        StatusMessageSlot(message = uiState.statusMessage)
 
         ZoneRectangleEditor(
             availableZones = uiState.availableZones,
@@ -206,13 +205,7 @@ private fun ZoneRectangleEditor(
     val latestNoGoZones by rememberUpdatedState(noGoZones)
     val latestSelectedAreaType by rememberUpdatedState(selectedAreaType)
 
-    val cameraCenter = remember(mowerPosition, isNavigationMode, lastCameraCenter) {
-        if (isNavigationMode) mowerPosition ?: lastCameraCenter else DEFAULT_CAMERA_CENTER
-    }
-
-    if (isNavigationMode && mowerPosition != null && mowerPosition != lastCameraCenter) {
-        lastCameraCenter = mowerPosition
-    }
+    val cameraCenter = remember(lastCameraCenter) { lastCameraCenter }
 
     Box(modifier = modifier) {
         Canvas(
@@ -243,7 +236,7 @@ private fun ZoneRectangleEditor(
                             cameraCenter = cameraCenter,
                             panPx = pan,
                             zoom = zoom,
-                            thresholdPx = 48f
+                            thresholdPx = HANDLE_HIT_RADIUS_PX
                         )
 
                         if (activeHandle.value == null) {
@@ -255,7 +248,7 @@ private fun ZoneRectangleEditor(
                                 cameraCenter = cameraCenter,
                                 panPx = pan,
                                 zoom = zoom,
-                                thresholdPx = 48f
+                                thresholdPx = HANDLE_HIT_RADIUS_PX
                             )
                             if (nearestAcrossTypes != null) {
                                 activeHandle.value = nearestAcrossTypes.handleIndex
@@ -371,7 +364,7 @@ private fun ZoneRectangleEditor(
                         return@pointerInput
                     }
                 }
-                .pointerInput(isNavigationMode, cameraCenter) {
+                .pointerInput(isNavigationMode, cameraCenter, pan, zoom) {
                     if (!isNavigationMode) {
                         return@pointerInput
                     }
@@ -380,13 +373,13 @@ private fun ZoneRectangleEditor(
                             position = tapOffset,
                             size = size,
                             cameraCenter = cameraCenter,
-                            panPx = Offset.Zero,
-                            zoom = 1f
+                            panPx = pan,
+                            zoom = zoom
                         )
                         latestOnNavigationTap(mapPoint)
                     }
                 }
-                .pointerInput(isNavigationMode, cameraCenter) {
+                .pointerInput(isNavigationMode, cameraCenter, pan, zoom) {
                     if (!isNavigationMode) {
                         return@pointerInput
                     }
@@ -396,8 +389,8 @@ private fun ZoneRectangleEditor(
                                 position = startOffset,
                                 size = size,
                                 cameraCenter = cameraCenter,
-                                panPx = Offset.Zero,
-                                zoom = 1f
+                                panPx = pan,
+                                zoom = zoom
                             )
                             latestOnNavigationTapAndHold(startPoint)
                         }
@@ -406,16 +399,16 @@ private fun ZoneRectangleEditor(
                             position = change.position,
                             size = size,
                             cameraCenter = cameraCenter,
-                            panPx = Offset.Zero,
-                            zoom = 1f
+                            panPx = pan,
+                            zoom = zoom
                         )
                         latestOnNavigationTapAndHold(mapPoint)
                         change.consume()
                     }
                 }
         ) {
-            val activePan = if (isNavigationMode) Offset.Zero else pan
-            val activeZoom = if (isNavigationMode) 1f else zoom
+            val activePan = pan
+            val activeZoom = zoom
 
         drawGrid(
             size = size,
@@ -467,22 +460,16 @@ private fun ZoneRectangleEditor(
             drawCircle(color = Color(0xFFFF9800), center = destinationScreen, radius = 10f)
         }
 
-            if (isNavigationMode) {
-                val mowerScreen = Offset(size.width / 2f, size.height / 2f)
+            mowerPosition?.let { mower ->
+                val mowerScreen = mapToScreen(
+                    point = mower,
+                    size = size,
+                    cameraCenter = cameraCenter,
+                    panPx = activePan,
+                    zoom = activeZoom
+                )
                 drawCircle(color = Color(0xFFD84315), center = mowerScreen, radius = 12f)
                 drawCircle(color = Color(0xFFFFCCBC), center = mowerScreen, radius = 4f)
-            } else {
-                mowerPosition?.let { mower ->
-                    val mowerScreen = mapToScreen(
-                        point = mower,
-                        size = size,
-                        cameraCenter = cameraCenter,
-                        panPx = activePan,
-                        zoom = activeZoom
-                    )
-                    drawCircle(color = Color(0xFFD84315), center = mowerScreen, radius = 12f)
-                    drawCircle(color = Color(0xFFFFCCBC), center = mowerScreen, radius = 4f)
-                }
             }
         }
 
@@ -558,12 +545,12 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawZoneCollection(
                 drawCircle(
                     color = if (isActive) Color(0xFF0D47A1) else Color(0xFF1565C0),
                     center = handleCenter,
-                    radius = if (isActive) 22f else 18f
+                    radius = if (isActive) HANDLE_ACTIVE_RADIUS_PX else HANDLE_RADIUS_PX
                 )
                 drawCircle(
                     color = Color.White,
                     center = handleCenter,
-                    radius = 8f
+                    radius = HANDLE_INNER_RADIUS_PX
                 )
             }
         }
@@ -814,4 +801,8 @@ private const val MAP_MAX_X_MM = 6000
 private const val MAP_MAX_Y_MM = 4500
 private const val MAP_WIDTH_MM = 6000
 private const val MAP_HEIGHT_MM = 4500
+private const val HANDLE_RADIUS_PX = 30f
+private const val HANDLE_ACTIVE_RADIUS_PX = 38f
+private const val HANDLE_INNER_RADIUS_PX = 12f
+private const val HANDLE_HIT_RADIUS_PX = 46f
 private val DEFAULT_CAMERA_CENTER = Point2dMm(MAP_WIDTH_MM / 2, MAP_HEIGHT_MM / 2)

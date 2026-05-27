@@ -8,6 +8,7 @@ import com.kosilka.data.device.protocol.Envelope
 import com.kosilka.data.device.protocol.IncomingMessage
 import com.kosilka.data.local.dao.CoverageDao
 import com.kosilka.data.local.entity.CoverageSegmentEntity
+import com.kosilka.domain.model.Point2dMm
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -58,6 +59,10 @@ private class FakeCoverageDevice : MowerDevice {
     }
 
     override suspend fun send(envelope: Envelope): Result<Unit> = Result.success(Unit)
+
+    override suspend fun readCurrentPosition(): Result<Point2dMm> {
+        return Result.success(Point2dMm(0, 0))
+    }
 
     suspend fun emitCoverage(sessionId: String, fx: Int, fy: Int, tx: Int, ty: Int) {
         incomingFlow.emit(

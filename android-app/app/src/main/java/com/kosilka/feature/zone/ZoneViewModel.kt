@@ -632,29 +632,94 @@ class ZoneViewModel @Inject constructor(
             return desiredTarget
         }
 
-        val activePolygon = availablePolygons.firstOrNull { polygon ->
-            isPointInsideOrOnPolygon(start, polygon)
-        }
-
-        if (activePolygon == null) {
-            return if (availablePolygons.any { polygon -> isPointInsideOrOnPolygon(desiredTarget, polygon) }) {
-                desiredTarget
-            } else {
-                start
-            }
-        }
-
-        if (isPointInsideOrOnPolygon(desiredTarget, activePolygon)) {
+        if (isPathInsideAvailableUnion(start, desiredTarget, availablePolygons)) {
             return desiredTarget
         }
 
-        val exitT = firstIntersectionT(start, desiredTarget, activePolygon) ?: return start
-        val safeT = (exitT - AVAILABLE_STOP_MARGIN_T).coerceIn(0.0, 1.0)
+        val safeT = findLastSafeAvailableT(start, desiredTarget, availablePolygons)
+            ?.minus(AVAILABLE_STOP_MARGIN_T)
+            ?.coerceIn(0.0, 1.0)
+            ?: return start
         val safeX = start.xMm + ((desiredTarget.xMm - start.xMm) * safeT)
         val safeY = start.yMm + ((desiredTarget.yMm - start.yMm) * safeT)
         return Point2dMm(
             xMm = safeX.roundToInt(),
             yMm = safeY.roundToInt()
+        )
+    }
+
+    private fun isPathInsideAvailableUnion(
+        start: Point2dMm,
+        end: Point2dMm,
+        availablePolygons: List<List<Point2dMm>>
+    ): Boolean {
+        val samples = maxOf(
+            2,
+            (hypot((end.xMm - start.xMm).toDouble(), (end.yMm - start.yMm).toDouble()) / PATH_SAMPLE_STEP_MM).toInt()
+        )
+
+        for (index in 0..samples) {
+            val t = index.toDouble() / samples.toDouble()
+            if (!isPointInsideAvailableUnion(interpolatePoint(start, end, t), availablePolygons)) {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    private fun findLastSafeAvailableT(
+        start: Point2dMm,
+        end: Point2dMm,
+        availablePolygons: List<List<Point2dMm>>
+    ): Double? {
+        val startInsideAvailable = isPointInsideAvailableUnion(start, availablePolygons)
+        if (!startInsideAvailable) {
+            return if (isPointInsideAvailableUnion(end, availablePolygons)) 1.0 else null
+        }
+
+        val samples = maxOf(
+            2,
+            (hypot((end.xMm - start.xMm).toDouble(), (end.yMm - start.yMm).toDouble()) / PATH_SAMPLE_STEP_MM).toInt()
+        )
+        var safeT = 0.0
+
+        for (index in 1..samples) {
+            val candidateT = index.toDouble() / samples.toDouble()
+            val candidatePoint = interpolatePoint(start, end, candidateT)
+            if (isPointInsideAvailableUnion(candidatePoint, availablePolygons)) {
+                safeT = candidateT
+                continue
+            }
+
+            var lower = safeT
+            var upper = candidateT
+            repeat(20) {
+                val mid = (lower + upper) / 2.0
+                val midPoint = interpolatePoint(start, end, mid)
+                if (isPointInsideAvailableUnion(midPoint, availablePolygons)) {
+                    lower = mid
+                } else {
+                    upper = mid
+                }
+            }
+            return lower
+        }
+
+        return 1.0
+    }
+
+    private fun isPointInsideAvailableUnion(
+        point: Point2dMm,
+        availablePolygons: List<List<Point2dMm>>
+    ): Boolean {
+        return availablePolygons.any { polygon -> isPointInsideOrOnPolygon(point, polygon) }
+    }
+
+    private fun interpolatePoint(start: Point2dMm, end: Point2dMm, t: Double): Point2dMm {
+        return Point2dMm(
+            xMm = (start.xMm + (end.xMm - start.xMm) * t).roundToInt(),
+            yMm = (start.yMm + (end.yMm - start.yMm) * t).roundToInt()
         )
     }
 
@@ -1086,6 +1151,7 @@ class ZoneViewModel @Inject constructor(
         const val DRAFT_PERSIST_DEBOUNCE_MS = 250L
         const val NO_GO_STOP_MARGIN_T = 0.002
         const val AVAILABLE_STOP_MARGIN_T = 0.002
+        const val PATH_SAMPLE_STEP_MM = 120.0
         const val ARRIVAL_THRESHOLD_MM = 100.0
         const val AUTO_CONNECT_RETRY_MS = 2_000L
         const val AVAILABLE_ZONE_PREFIX = "zone-available-"

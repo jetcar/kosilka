@@ -78,19 +78,42 @@ private class CapturingMowerDevice : MowerDevice {
         lastEnvelope = envelope
         return Result.success(Unit)
     }
+
+    override suspend fun readCurrentPosition(): Result<Point2dMm> {
+        return Result.success(Point2dMm(0, 0))
+    }
 }
 
 private class FakeZoneDao : ZoneDao {
     private val state = MutableStateFlow<ZoneEntity?>(null)
+    private val byPrefix = MutableStateFlow<List<ZoneEntity>>(emptyList())
 
     override suspend fun upsertZone(zone: ZoneEntity) {
         state.value = zone
+        byPrefix.value = listOf(zone)
     }
 
     override fun getZone() = state.asStateFlow()
 
+    override fun getZoneById(id: String) = MutableStateFlow(state.value?.takeIf { it.id == id }).asStateFlow()
+
+    override fun getZonesByPrefix(prefix: String) =
+        MutableStateFlow(byPrefix.value.filter { it.id.startsWith(prefix) }).asStateFlow()
+
+    override suspend fun getZoneIdsByPrefix(prefix: String): List<String> {
+        return byPrefix.value.filter { it.id.startsWith(prefix) }.map { it.id }
+    }
+
     override suspend fun deleteZone(id: String) {
         if (state.value?.id == id) {
+            state.value = null
+        }
+        byPrefix.value = byPrefix.value.filterNot { it.id == id }
+    }
+
+    override suspend fun deleteZonesByPrefix(prefix: String) {
+        byPrefix.value = byPrefix.value.filterNot { it.id.startsWith(prefix) }
+        if (state.value?.id?.startsWith(prefix) == true) {
             state.value = null
         }
     }

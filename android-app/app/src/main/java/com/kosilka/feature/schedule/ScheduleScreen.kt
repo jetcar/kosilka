@@ -18,6 +18,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.kosilka.core.ui.StatusMessageSlot
 
 @Composable
 fun ScheduleScreen(
@@ -34,9 +35,7 @@ fun ScheduleScreen(
     ) {
         Text("Schedules", style = MaterialTheme.typography.headlineSmall)
 
-        uiState.statusMessage?.let { message ->
-            Text(message, color = MaterialTheme.colorScheme.error)
-        }
+        StatusMessageSlot(message = uiState.statusMessage)
 
         OutlinedTextField(
             modifier = Modifier.fillMaxWidth(),

@@ -343,11 +343,11 @@
                 <div class="row">
                     <label>
                         Width (mm)
-                        <input id="zoneWidth" type="number" value="1200" min="100" max="6000" />
+                        <input id="zoneWidth" type="number" value="1200" min="100" />
                     </label>
                     <label>
                         Height (mm)
-                        <input id="zoneHeight" type="number" value="900" min="100" max="4500" />
+                        <input id="zoneHeight" type="number" value="900" min="100" />
                     </label>
                 </div>
                 <div class="row">
@@ -413,12 +413,9 @@
         const addZoneBtn = document.getElementById('addZoneBtn');
         const clearZonesBtn = document.getElementById('clearZonesBtn');
 
-        const world = {
-            minX: 0,
-            minY: 0,
-            maxX: 6000,
-            maxY: 4500
-        };
+        const DEFAULT_WORLD_WIDTH_MM = 6000;
+        const DEFAULT_WORLD_HEIGHT_MM = 4500;
+        const WORLD_MARGIN_MM = 1000;
 
         let latestState = {
             activeScenario: 'NORMAL',
@@ -455,7 +452,61 @@
         let panStart = { x: 0, y: 0 };
         let panOffsetStart = { x: 0, y: 0 };
 
+        function getWorldBounds() {
+            const points = [];
+
+            if (latestState.position) {
+                points.push(latestState.position);
+            }
+            if (latestState.destination) {
+                points.push(latestState.destination);
+            }
+            for (const tag of tags) {
+                points.push(tag);
+            }
+            for (const zone of zones) {
+                if (!Array.isArray(zone.vertices)) {
+                    continue;
+                }
+                for (const vertex of zone.vertices) {
+                    points.push(vertex);
+                }
+            }
+
+            if (points.length === 0) {
+                return {
+                    minX: -DEFAULT_WORLD_WIDTH_MM / 2,
+                    minY: -DEFAULT_WORLD_HEIGHT_MM / 2,
+                    maxX: DEFAULT_WORLD_WIDTH_MM / 2,
+                    maxY: DEFAULT_WORLD_HEIGHT_MM / 2
+                };
+            }
+
+            const minX = Math.min(...points.map((point) => Number(point.xMm) || 0));
+            const maxX = Math.max(...points.map((point) => Number(point.xMm) || 0));
+            const minY = Math.min(...points.map((point) => Number(point.yMm) || 0));
+            const maxY = Math.max(...points.map((point) => Number(point.yMm) || 0));
+
+            const paddedMinX = minX - WORLD_MARGIN_MM;
+            const paddedMaxX = maxX + WORLD_MARGIN_MM;
+            const paddedMinY = minY - WORLD_MARGIN_MM;
+            const paddedMaxY = maxY + WORLD_MARGIN_MM;
+
+            const centerX = (paddedMinX + paddedMaxX) / 2;
+            const centerY = (paddedMinY + paddedMaxY) / 2;
+            const spanX = Math.max(DEFAULT_WORLD_WIDTH_MM, paddedMaxX - paddedMinX);
+            const spanY = Math.max(DEFAULT_WORLD_HEIGHT_MM, paddedMaxY - paddedMinY);
+
+            return {
+                minX: centerX - spanX / 2,
+                minY: centerY - spanY / 2,
+                maxX: centerX + spanX / 2,
+                maxY: centerY + spanY / 2
+            };
+        }
+
         function mapToScreen(point) {
+            const world = getWorldBounds();
             const padding = 40;
             const width = mapCanvas.width - padding * 2;
             const height = mapCanvas.height - padding * 2;
@@ -469,6 +520,7 @@
         }
 
         function screenToMap(screenX, screenY) {
+            const world = getWorldBounds();
             const rect = mapCanvas.getBoundingClientRect();
             const px = (screenX - rect.left) * (mapCanvas.width / rect.width);
             const py = (screenY - rect.top) * (mapCanvas.height / rect.height);
@@ -493,6 +545,7 @@
         }
 
         function clampToWorld(point) {
+            const world = getWorldBounds();
             return {
                 xMm: Math.max(world.minX, Math.min(world.maxX, Math.round(point.xMm))),
                 yMm: Math.max(world.minY, Math.min(world.maxY, Math.round(point.yMm)))
@@ -745,6 +798,8 @@
             mapCtx.clearRect(0, 0, mapCanvas.width, mapCanvas.height);
             mapCtx.fillStyle = '#f8fbff';
             mapCtx.fillRect(0, 0, mapCanvas.width, mapCanvas.height);
+
+            const world = getWorldBounds();
 
             // Compute visible world range from canvas corners
             const padding = 40;
