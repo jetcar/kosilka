@@ -25,6 +25,12 @@ Open UI:
 - `http://localhost:8080/`
 - `http://localhost:8080/ui`
 
+Coverage-test preset in UI:
+- Open `http://localhost:8080/ui`
+- In the **Zones** panel, click **Load 10x10 + 50 No-Go Test Preset**
+- This loads the exact 10x10 available zone plus the 50 equally distributed 50 mm x 50 mm no-go squares used by `RealRangingIntegrationTest`
+- Zoom in on the map to inspect the tiny no-go squares
+
 For Android emulator, `10.0.2.2` maps to the host machine, so the app can use:
 - `http://10.0.2.2:8080`
 

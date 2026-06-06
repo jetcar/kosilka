@@ -81,6 +81,26 @@ class RealRangingIntegrationTest {
         Triple("UWB-TL", Point2dMm(-500, 10500),  20000)
     )
 
+    // 10 tiny no-go zones: 2 rows × 5 columns, each 50 × 50 mm
+    // Row y-centres: 2000, 6000 — Column x-centres: 1000, 3000, 5000, 7000, 9000
+    private val tinyNoGoZones: List<Zone> = run {
+        val rows = listOf(2000, 6000)
+        val cols = listOf(1000, 3000, 5000, 7000, 9000)
+        rows.flatMapIndexed { ri, cy ->
+            cols.mapIndexed { ci, cx ->
+                Zone(
+                    id = "zone-tiny-no-go-${ri * 5 + ci + 1}",
+                    vertices = listOf(
+                        Point2dMm(cx - 25, cy - 25),
+                        Point2dMm(cx + 25, cy - 25),
+                        Point2dMm(cx + 25, cy + 25),
+                        Point2dMm(cx - 25, cy + 25)
+                    )
+                )
+            }
+        }
+    }
+
     private fun prepareFieldWithoutTags(mowerPosition: Point2dMm): String {
         return EmulatorContainerSupport.prepareTestMap(
             mowerPosition = mowerPosition,
@@ -93,6 +113,18 @@ class RealRangingIntegrationTest {
 
     private fun prepareFieldWithTags(mowerPosition: Point2dMm): String {
         val baseUrl = prepareFieldWithoutTags(mowerPosition)
+        EmulatorContainerSupport.addUwbTags(baseUrl = baseUrl, tags = cornerTags)
+        return baseUrl
+    }
+
+    private fun prepareFieldWith10TinyNoGoZonesAndTags(mowerPosition: Point2dMm): String {
+        val baseUrl = EmulatorContainerSupport.prepareTestMap(
+            mowerPosition = mowerPosition,
+            availableZones = listOf(availableZone),
+            noGoZones = tinyNoGoZones,
+            speedMmPerSec = 1300,
+            rotationSpeedDegPerSec = 720
+        )
         EmulatorContainerSupport.addUwbTags(baseUrl = baseUrl, tags = cornerTags)
         return baseUrl
     }
@@ -346,6 +378,111 @@ class RealRangingIntegrationTest {
         // ── Assertion 5: duration consistent with 1300 mm/s on 10×10 m field ──
         // 200 m ÷ 1.3 m/s ≈ 154 s. Lower bound enforces that we didn't cheat;
         // upper bound catches catastrophic slowdowns.
+        val durationSec = durationMs / 1000
+        assertTrue(
+            "Duration ${durationSec}s — must be 60–300 s for a 10×10 m spiral at 1300 mm/s",
+            durationSec in 60..300
+        )
+
+        device.disconnect()
+    }
+
+    // ─── Test 5: 10×10 m field with 10 tiny equally-distributed no-go zones ────
+    //
+    //  No-go zones: 10 squares of 50 mm × 50 mm in a 2 × 5 grid
+    //    x-centres: 1000, 3000, 5000, 7000, 9000
+    //    y-centres: 2000, 6000
+    //  Spiral sweep lanes (y = 250, 750, 1250, …) never hit y ∈ [1975, 2025] or [5975, 6025],
+    //  so no waypoint crosses any zone — no special routing required.
+    @Test
+    fun `ccw spiral covers 10x10m field with 10 tiny no-go zones equally distributed`() = runBlocking {
+        val sweepMm = 500
+        val startPos = Point2dMm(250, 250)
+        val baseUrl = prepareFieldWith10TinyNoGoZonesAndTags(mowerPosition = startPos)
+
+        val device = RestEmulatorMowerDevice(baseUrl = baseUrl)
+        device.connect()
+        delay(500L)
+
+        val sessionId = device.sessionId()
+        val (collector, collectorJob) = collectCoverageSegments(device)
+
+        val waypoints = ccwSpiral(0, 10000, 0, 10000, sweepMm)
+
+        // Pre-check: no planned spiral leg crosses any tiny no-go zone.
+        for (i in 0 until waypoints.size - 1) {
+            for (zone in tinyNoGoZones) {
+                assertFalse(
+                    "Planned spiral leg ${waypoints[i]} → ${waypoints[i + 1]} crosses ${zone.id}",
+                    segmentIntersectsRect(waypoints[i], waypoints[i + 1], zone.vertices)
+                )
+            }
+        }
+
+        var msgId = 200_000L
+        val startMs = System.currentTimeMillis()
+        for ((idx, wp) in waypoints.withIndex()) {
+            device.send(
+                Envelope(
+                    protocolVersion = ProtocolConstants.SUPPORTED_VERSION,
+                    messageType = ProtocolConstants.TYPE_MOVE_TO,
+                    messageId = msgId++,
+                    sessionId = sessionId,
+                    timestampMs = System.currentTimeMillis(),
+                    payload = mapOf("targetXMm" to wp.xMm, "targetYMm" to wp.yMm)
+                )
+            )
+            val arrived = withTimeoutOrNull(20_000L) {
+                while (true) {
+                    val pos = device.readCurrentPosition().getOrThrow()
+                    val d = hypot((wp.xMm - pos.xMm).toDouble(), (wp.yMm - pos.yMm).toDouble())
+                    if (d < 100.0) return@withTimeoutOrNull true
+                    delay(80L)
+                }
+                false
+            }
+            assertTrue("Failed to reach waypoint #$idx $wp", arrived == true)
+        }
+        val durationMs = System.currentTimeMillis() - startMs
+        delay(500L)
+        collectorJob.cancel()
+
+        val segments = collector.snapshot()
+
+        // ── Assertion 1: 5 cm reporting cadence on ~200 m path ──
+        assertTrue(
+            "Expected ≥1500 coverage segments (5 cm reporting on ~200 m spiral), got ${segments.size}",
+            segments.size >= 1500
+        )
+
+        // ── Assertion 2: no segment crosses any of the 10 tiny no-go zones ──
+        for (zone in tinyNoGoZones) {
+            val crossing = segments.filter { seg ->
+                segmentIntersectsRect(
+                    Point2dMm(seg.fromXMm, seg.fromYMm),
+                    Point2dMm(seg.toXMm, seg.toYMm),
+                    zone.vertices
+                )
+            }
+            assertTrue(
+                "No segment may cross ${zone.id} (${crossing.size} did)",
+                crossing.isEmpty()
+            )
+        }
+
+        // ── Assertion 3: coverage ≥ 90 % ──
+        val coveragePercent = computeCoverageWithSweep(
+            zone = availableZone,
+            segments = segments,
+            sweepWidthMm = sweepMm,
+            gridStepMm = 100
+        )
+        assertTrue(
+            "Coverage %.1f%% must be ≥ 90%%".format(coveragePercent),
+            coveragePercent >= 90.0
+        )
+
+        // ── Assertion 4: duration sanity at 1300 mm/s ──
         val durationSec = durationMs / 1000
         assertTrue(
             "Duration ${durationSec}s — must be 60–300 s for a 10×10 m spiral at 1300 mm/s",

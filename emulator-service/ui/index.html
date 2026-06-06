@@ -354,7 +354,11 @@
                     <button id="addZoneBtn">Add Zone</button>
                     <button id="clearZonesBtn" class="danger">Clear Zones</button>
                 </div>
+                <div class="row">
+                    <button id="loadCoverage50NoGoPresetBtn" class="ghost">Load 10x10 + 50 No-Go Test Preset</button>
+                </div>
                 <div class="muted">Tip: click map to fill zone center X/Y quickly.</div>
+                <div class="muted">Loads the exact zone layout used by the 10x10 coverage integration test. Zoom in to inspect the 50 x 50 mm no-go squares.</div>
                 <div id="zoneList" class="tag-list"></div>
             </div>
 
@@ -412,6 +416,7 @@
         const zoneHeightInput = document.getElementById('zoneHeight');
         const addZoneBtn = document.getElementById('addZoneBtn');
         const clearZonesBtn = document.getElementById('clearZonesBtn');
+        const loadCoverage50NoGoPresetBtn = document.getElementById('loadCoverage50NoGoPresetBtn');
 
         const DEFAULT_WORLD_WIDTH_MM = 6000;
         const DEFAULT_WORLD_HEIGHT_MM = 4500;
@@ -1137,6 +1142,31 @@
             ];
         }
 
+        function buildCoverage50NoGoPresetZones() {
+            const presetZones = [{
+                zoneId: 'zone-available-10x10',
+                areaType: 'AVAILABLE',
+                vertices: toRectangleVertices({ xMm: 5000, yMm: 5000 }, 10000, 10000)
+            }];
+
+            const xCentres = [1000, 3000, 5000, 7000, 9000];
+            const yCentres = Array.from({ length: 10 }, (_, rowIndex) => 500 + rowIndex * 1000);
+            let zoneIndex = 0;
+
+            for (const xMm of xCentres) {
+                for (const yMm of yCentres) {
+                    presetZones.push({
+                        zoneId: `zone-no-go-scatter-${zoneIndex}`,
+                        areaType: 'NO_GO',
+                        vertices: toRectangleVertices({ xMm, yMm }, 50, 50)
+                    });
+                    zoneIndex += 1;
+                }
+            }
+
+            return presetZones;
+        }
+
         function renderZoneList() {
             zoneList.innerHTML = '';
 
@@ -1211,6 +1241,30 @@
                 alert('Failed to clear zones');
                 return;
             }
+            await refresh();
+        }
+
+        async function loadCoverage50NoGoPreset() {
+            const clearResponse = await fetch('/api/v1/ui/zones', { method: 'DELETE' });
+            if (!clearResponse.ok) {
+                throw new Error('Failed to clear existing zones before loading preset');
+            }
+
+            const presetZones = buildCoverage50NoGoPresetZones();
+            for (const zone of presetZones) {
+                const response = await fetch('/api/v1/ui/zones', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(zone)
+                });
+
+                if (!response.ok) {
+                    const error = await response.json().catch(() => ({}));
+                    throw new Error(error.error || error.detail || `Failed to create ${zone.zoneId}`);
+                }
+            }
+
+            selectedZoneId = 'zone-available-10x10';
             await refresh();
         }
 
@@ -1719,6 +1773,7 @@
         clearTagsBtn.addEventListener('click', () => clearTags().catch((error) => alert(error.message)));
         addZoneBtn.addEventListener('click', () => addZone().catch((error) => alert(error.message)));
         clearZonesBtn.addEventListener('click', () => clearZones().catch((error) => alert(error.message)));
+        loadCoverage50NoGoPresetBtn.addEventListener('click', () => loadCoverage50NoGoPreset().catch((error) => alert(error.message)));
         document.getElementById('applyPhysicsBtn').addEventListener('click', () => applyPhysics().catch((error) => alert(error.message)));
         document.getElementById('clearCommandLogBtn').addEventListener('click', () => {
             lastRenderedCommandCount = 0;
