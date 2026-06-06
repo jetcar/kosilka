@@ -111,6 +111,7 @@ private class FakeHandshakeMowerDevice(
     }
 
     override suspend fun send(envelope: Envelope): Result<Unit> {
+        delay(50L) // allow incomingRouterJob coroutine to start collecting before we emit
         when (envelope.messageType) {
             ProtocolConstants.TYPE_PAIR_REQUEST -> {
                 incomingFlow.emit(

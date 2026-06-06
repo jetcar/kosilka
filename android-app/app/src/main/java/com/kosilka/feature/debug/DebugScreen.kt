@@ -11,7 +11,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -28,11 +27,24 @@ fun DebugScreen(
 ) {
     val mode by viewModel.currentMode.collectAsState()
     val serviceEndpoint by viewModel.serviceEndpoint.collectAsState()
-    var serviceEndpointInput by remember { mutableStateOf("") }
+    DebugScreenContent(
+        mode = mode,
+        serviceEndpoint = serviceEndpoint,
+        onSetMode = viewModel::setMode,
+        onApplyEndpoint = viewModel::setServiceEndpoint,
+        onResetEndpoint = viewModel::resetServiceEndpoint
+    )
+}
 
-    LaunchedEffect(serviceEndpoint) {
-        serviceEndpointInput = serviceEndpoint
-    }
+@Composable
+internal fun DebugScreenContent(
+    mode: TransportMode,
+    serviceEndpoint: String,
+    onSetMode: (TransportMode) -> Unit = {},
+    onApplyEndpoint: (String) -> Unit = {},
+    onResetEndpoint: () -> Unit = {}
+) {
+    var serviceEndpointInput by remember(serviceEndpoint) { mutableStateOf(serviceEndpoint) }
 
     Card(
         modifier = Modifier
@@ -49,10 +61,10 @@ fun DebugScreen(
             Text("Current mode: ${mode.name}")
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { viewModel.setMode(TransportMode.USB) }) {
+                Button(onClick = { onSetMode(TransportMode.USB) }) {
                     Text("Use USB")
                 }
-                Button(onClick = { viewModel.setMode(TransportMode.SERVICE) }) {
+                Button(onClick = { onSetMode(TransportMode.SERVICE) }) {
                     Text("Use Service")
                 }
             }
@@ -67,10 +79,10 @@ fun DebugScreen(
             )
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { viewModel.setServiceEndpoint(serviceEndpointInput) }) {
+                Button(onClick = { onApplyEndpoint(serviceEndpointInput) }) {
                     Text("Apply Endpoint")
                 }
-                Button(onClick = { viewModel.resetServiceEndpoint() }) {
+                Button(onClick = onResetEndpoint) {
                     Text("Reset Default")
                 }
             }

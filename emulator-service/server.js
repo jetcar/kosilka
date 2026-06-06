@@ -15,6 +15,7 @@ const TYPE = {
     RANGING_START: 'RANGING_START',
     RANGING_STOP: 'RANGING_STOP',
     RANGING_SAMPLE: 'RANGING_SAMPLE',
+    ANCHOR_CONFIG: 'ANCHOR_CONFIG',
     HEARTBEAT: 'HEARTBEAT',
     MOVE_TO: 'MOVE_TO',
     ZONE_SET: 'ZONE_SET',
@@ -23,7 +24,8 @@ const TYPE = {
 };
 
 const ERR = {
-    BUSY: 1006
+    BUSY: 1006,
+    INSUFFICIENT_TAGS: 1009
 };
 
 const UI_INDEX_FILE = pathModule.join(__dirname, 'ui', 'index.html');
@@ -55,6 +57,8 @@ const state = {
     ,
     tags: [],
     nextTagId: 1,
+    uwbTags: [],
+    nextUwbTagId: 1,
     headingDeg: 0,
     rotationSpeedDegPerSec: 90,
     destination: null,
@@ -218,7 +222,9 @@ function createPersistentStateSnapshot() {
             source: zone.source,
             updatedAtMs: zone.updatedAtMs
         })),
-        nextZoneId: state.nextZoneId
+        nextZoneId: state.nextZoneId,
+        uwbTags: state.uwbTags.map((tag) => ({ ...tag })),
+        nextUwbTagId: state.nextUwbTagId
     };
 }
 
@@ -288,6 +294,21 @@ function applyPersistentStateSnapshot(snapshot) {
             return Number.isFinite(parsed) ? Math.max(max, parsed + 1) : max;
         }, 1))
     );
+
+    if (Array.isArray(snapshot.uwbTags)) {
+        state.uwbTags = snapshot.uwbTags.map((tag) => ({
+            id: String(tag.id || `uwb-${state.nextUwbTagId++}`),
+            xMm: Math.round(Number(tag.xMm) || 0),
+            yMm: Math.round(Number(tag.yMm) || 0),
+            label: String(tag.label || '').trim() || `Tag ${state.nextUwbTagId - 1}`,
+            enabled: tag.enabled !== false,
+            maxRangeMm: Math.max(100, Number(tag.maxRangeMm) || 8000)
+        }));
+        state.nextUwbTagId = Math.max(
+            state.nextUwbTagId,
+            Number(snapshot.nextUwbTagId) || (state.uwbTags.length + 1)
+        );
+    }
 }
 
 function saveStateToFile(targetPath = STATE_FILE_PATH) {
@@ -339,6 +360,58 @@ function normalizeTagInput(body) {
         xMm: Math.round(xMm),
         yMm: Math.round(yMm)
     };
+}
+
+function normalizeUwbTagInput(body) {
+    const xMm = Number(body.xMm);
+    const yMm = Number(body.yMm);
+    if (!Number.isFinite(xMm) || !Number.isFinite(yMm)) {
+        throw new Error('xMm and yMm must be numbers');
+    }
+    // Auto-generate label if not provided
+    const label = String(body.label || '').trim() || `Tag ${state.nextUwbTagId}`;
+    return {
+        label,
+        xMm: Math.round(xMm),
+        yMm: Math.round(yMm),
+        maxRangeMm: Math.max(100, Number(body.maxRangeMm) || 8000),
+        enabled: body.enabled !== false
+    };
+}
+
+function segmentsIntersect(ax, ay, bx, by, cx, cy, dx, dy) {
+    const ex = bx - ax, ey = by - ay;
+    const fx = dx - cx, fy = dy - cy;
+    const denom = ex * fy - ey * fx;
+    if (Math.abs(denom) < 1e-9) return false;
+    const t = ((cx - ax) * fy - (cy - ay) * fx) / denom;
+    const u = ((cx - ax) * ey - (cy - ay) * ex) / denom;
+    return t > 0 && t < 1 && u > 0 && u < 1;
+}
+
+function segmentIntersectsPolygon(p1, p2, vertices) {
+    if (!vertices || vertices.length < 3) return false;
+    for (let i = 0; i < vertices.length; i++) {
+        const v1 = vertices[i];
+        const v2 = vertices[(i + 1) % vertices.length];
+        if (segmentsIntersect(p1.xMm, p1.yMm, p2.xMm, p2.yMm, v1.xMm, v1.yMm, v2.xMm, v2.yMm)) return true;
+    }
+    return false;
+}
+
+function hasLineOfSight(tag, mowerPos) {
+    for (const zone of state.zones.filter((z) => z.areaType === 'NO_GO')) {
+        if (segmentIntersectsPolygon(tag, mowerPos, zone.vertices)) return false;
+    }
+    return true;
+}
+
+function computeVisibleUwbTags() {
+    const pos = state.position;
+    return state.uwbTags.filter((tag) => {
+        if (!tag.enabled) return false;
+        return Math.hypot(tag.xMm - pos.xMm, tag.yMm - pos.yMm) <= tag.maxRangeMm;
+    });
 }
 
 const COMMAND_LOG_MAX = 50;
@@ -438,6 +511,7 @@ function stepTowardDestination(intervalMs) {
 }
 
 const MOVEMENT_TICK_MS = 50;
+const POSITION_REPORT_STEP_MM = 50; // emit COVERAGE_UPDATE every 5 cm of travel
 
 function movementTick() {
     const scenario = currentScenarioType();
@@ -445,21 +519,44 @@ function movementTick() {
         return;
     }
 
-    const previous = { xMm: state.position.xMm, yMm: state.position.yMm };
-
-    if (state.destination) {
-        stepTowardDestination(MOVEMENT_TICK_MS);
+    if (!state.destination) {
+        return;
     }
 
-    if (state.position.xMm !== previous.xMm || state.position.yMm !== previous.yMm) {
-        enqueueMessage(TYPE.COVERAGE_UPDATE, {
-            segments: [{
-                fromXMm: previous.xMm,
-                fromYMm: previous.yMm,
-                toXMm: state.position.xMm,
-                toYMm: state.position.yMm
-            }]
+    // Strict gate: refuse to move at all unless at least 3 UWB tags are visible.
+    const visibleTags = computeVisibleUwbTags();
+    if (visibleTags.length < 3) {
+        state.destination = null;
+        enqueueMessage(TYPE.ERROR, {
+            code: ERR.INSUFFICIENT_TAGS,
+            name: 'ERR_INSUFFICIENT_TAGS',
+            detail: `Only ${visibleTags.length} UWB tag(s) visible; need at least 3 to navigate`,
+            failedMessageId: 0
         });
+        return;
+    }
+
+    // Subdivide the tick into sub-steps so COVERAGE_UPDATE is emitted every
+    // ~POSITION_REPORT_STEP_MM (5 cm) — gives a smooth path on the UI and
+    // mirrors how a real UWB-localised mower reports its location.
+    const tickDistanceMm = state.speedMmPerSec * (MOVEMENT_TICK_MS / 1000);
+    const subSteps = Math.max(1, Math.ceil(tickDistanceMm / POSITION_REPORT_STEP_MM));
+    const subStepMs = MOVEMENT_TICK_MS / subSteps;
+
+    for (let i = 0; i < subSteps; i++) {
+        if (!state.destination) break;
+        const previous = { xMm: state.position.xMm, yMm: state.position.yMm };
+        stepTowardDestination(subStepMs);
+        if (state.position.xMm !== previous.xMm || state.position.yMm !== previous.yMm) {
+            enqueueMessage(TYPE.COVERAGE_UPDATE, {
+                segments: [{
+                    fromXMm: previous.xMm,
+                    fromYMm: previous.yMm,
+                    toXMm: state.position.xMm,
+                    toYMm: state.position.yMm
+                }]
+            });
+        }
     }
 }
 
@@ -518,23 +615,28 @@ function advancePosition(distanceMm) {
 
 function emitRangingAndCoverageTick(intervalMs) {
     const scenario = currentScenarioType();
-    const signalLost = scenario === 'SIGNAL_LOSS';
+    if (scenario === 'SIGNAL_LOSS' || scenario === 'BUSY') return;
+
     const interfered = scenario === 'SIGNAL_INTERFERENCE';
-    const busy = scenario === 'BUSY';
-
-    if (signalLost || busy) {
-        return;
-    }
-
-    state.sequence += 1;
     const drift = currentDriftMmPerSec() * (intervalMs / 1000);
-    const distanceMm = Math.max(0, Math.round(Math.hypot(state.position.xMm + drift, state.position.yMm)));
-    enqueueMessage(TYPE.RANGING_SAMPLE, {
-        distanceMm,
-        quality: interfered ? 0.3 : 0.95,
-        rssiDbm: -62,
-        sequence: state.sequence,
-        anchorId: 'emu-anchor-1'
+    const pos = state.position;
+
+    state.uwbTags.forEach((tag) => {
+        if (!tag.enabled) return;
+        const dist = Math.hypot(tag.xMm - pos.xMm, tag.yMm - pos.yMm);
+        if (dist > tag.maxRangeMm) return;
+
+        state.sequence += 1;
+        const los = hasLineOfSight(tag, pos);
+        const quality = interfered ? 0.3 : (los ? 0.95 : 0.3);
+        const noise = (Math.random() - 0.5) * 20;
+        enqueueMessage(TYPE.RANGING_SAMPLE, {
+            distanceMm: Math.max(0, Math.round(dist + drift + noise)),
+            quality,
+            rssiDbm: -62,
+            sequence: state.sequence,
+            anchorId: tag.id
+        });
     });
 }
 
@@ -676,6 +778,11 @@ async function handleRequest(req, res) {
         } else if (messageType === TYPE.RANGING_START) {
             logCommand(messageType, payload);
             startRanging(payload.sampleRateHz);
+            enqueueMessage(TYPE.ANCHOR_CONFIG, {
+                anchors: state.uwbTags.filter((t) => t.enabled).map((t) => ({
+                    id: t.id, xMm: t.xMm, yMm: t.yMm, label: t.label
+                }))
+            }, state.sessionId);
         } else if (messageType === TYPE.RANGING_STOP) {
             logCommand(messageType, payload);
             stopRanging();
@@ -735,6 +842,8 @@ async function handleRequest(req, res) {
             connected: state.connected,
             sessionId: state.sessionId,
             tags: [...state.tags],
+            uwbTags: state.uwbTags.map((t) => ({ ...t })),
+            visibleTagCount: computeVisibleUwbTags().length,
             zones: state.zones.map((zone) => ({ ...zone })),
             commandLog: [...state.commandLog]
         });
@@ -916,6 +1025,66 @@ async function handleRequest(req, res) {
     if (req.method === 'DELETE' && isUiRoute('/command-log')) {
         state.commandLog = [];
         sendJson(res, 200, { ok: true });
+        return;
+    }
+
+    if (req.method === 'GET' && isUiRoute('/uwb-tags')) {
+        sendJson(res, 200, { uwbTags: state.uwbTags.map((t) => ({ ...t })) });
+        return;
+    }
+
+    if (req.method === 'POST' && isUiRoute('/uwb-tags')) {
+        const body = await readJson(req);
+        const tagInput = normalizeUwbTagInput(body);
+        const tag = { id: String(body.id || `uwb-${state.nextUwbTagId++}`), ...tagInput };
+        state.uwbTags.push(tag);
+        persistStateSafely();
+        sendJson(res, 200, { ok: true, uwbTag: { ...tag } });
+        return;
+    }
+
+    if (req.method === 'DELETE' && isUiRoute('/uwb-tags')) {
+        const deleted = state.uwbTags.length;
+        state.uwbTags = [];
+        state.nextUwbTagId = 1;
+        persistStateSafely();
+        sendJson(res, 200, { ok: true, deleted });
+        return;
+    }
+
+    if (req.method === 'PUT' && isUiRoutePrefix('/uwb-tags/')) {
+        const tagId = decodeURIComponent(path.replace('/api/v1/ui/uwb-tags/', '').replace('/api/v1/emulator/uwb-tags/', ''));
+        const body = await readJson(req);
+        const existing = state.uwbTags.find((t) => t.id === tagId);
+        if (!existing) { sendJson(res, 404, { error: 'UWB tag not found' }); return; }
+        if (body.label !== undefined) existing.label = String(body.label).trim() || existing.label;
+        if (Number.isFinite(Number(body.xMm))) existing.xMm = Math.round(Number(body.xMm));
+        if (Number.isFinite(Number(body.yMm))) existing.yMm = Math.round(Number(body.yMm));
+        if (Number.isFinite(Number(body.maxRangeMm))) existing.maxRangeMm = Math.max(100, Math.round(Number(body.maxRangeMm)));
+        if (body.enabled !== undefined) existing.enabled = body.enabled !== false;
+        persistStateSafely();
+        sendJson(res, 200, { ok: true, uwbTag: { ...existing } });
+        return;
+    }
+
+    if (req.method === 'POST' && isUiRoutePrefix('/uwb-tags/') && path.endsWith('/toggle')) {
+        const tagId = decodeURIComponent(
+            path.replace('/api/v1/ui/uwb-tags/', '').replace('/api/v1/emulator/uwb-tags/', '').replace('/toggle', '')
+        );
+        const existing = state.uwbTags.find((t) => t.id === tagId);
+        if (!existing) { sendJson(res, 404, { error: 'UWB tag not found' }); return; }
+        existing.enabled = !existing.enabled;
+        persistStateSafely();
+        sendJson(res, 200, { ok: true, uwbTag: { ...existing } });
+        return;
+    }
+
+    if (req.method === 'DELETE' && isUiRoutePrefix('/uwb-tags/')) {
+        const tagId = decodeURIComponent(path.replace('/api/v1/ui/uwb-tags/', '').replace('/api/v1/emulator/uwb-tags/', ''));
+        const before = state.uwbTags.length;
+        state.uwbTags = state.uwbTags.filter((t) => t.id !== tagId);
+        persistStateSafely();
+        sendJson(res, 200, { ok: true, deleted: before - state.uwbTags.length });
         return;
     }
 

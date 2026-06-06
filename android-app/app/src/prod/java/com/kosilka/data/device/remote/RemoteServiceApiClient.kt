@@ -3,6 +3,7 @@ package com.kosilka.data.device.remote
 import com.kosilka.core.CoroutineDispatchers
 import com.kosilka.data.device.TransportModeStore
 import com.kosilka.domain.model.Point2dMm
+import com.kosilka.domain.model.UwbTag
 import java.io.BufferedReader
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
@@ -13,8 +14,10 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -48,6 +51,18 @@ class RemoteServiceApiClient @Inject constructor(
         val response = request("GET", "/api/v1/device/messages$query", null)
         ensureSuccess(response)
         parseMessages(response.body)
+    }
+
+    suspend fun getUwbTags(): Result<List<UwbTag>> = runCatching {
+        val response = request("GET", "/api/v1/ui/uwb-tags", null)
+        ensureSuccess(response)
+        parseUwbTags(response.body)
+    }
+
+    suspend fun toggleUwbTag(tagId: String): Result<Unit> = runCatching {
+        val response = request("POST", "/api/v1/ui/uwb-tags/${tagId}/toggle", "{}")
+        ensureSuccess(response)
+        Unit
     }
 
     suspend fun readCurrentPosition(): Result<Point2dMm> = runCatching {
@@ -119,6 +134,23 @@ class RemoteServiceApiClient @Inject constructor(
                 }
             }
             else -> emptyList()
+        }
+    }
+
+    private fun parseUwbTags(body: String): List<UwbTag> {
+        if (body.isBlank()) return emptyList()
+        val root = json.parseToJsonElement(body).jsonObject
+        val arr = root["uwbTags"] as? JsonArray ?: return emptyList()
+        return arr.mapNotNull { elem ->
+            val obj = elem as? JsonObject ?: return@mapNotNull null
+            UwbTag(
+                id = obj["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null,
+                xMm = obj["xMm"]?.jsonPrimitive?.intOrNull ?: 0,
+                yMm = obj["yMm"]?.jsonPrimitive?.intOrNull ?: 0,
+                label = obj["label"]?.jsonPrimitive?.contentOrNull ?: "",
+                enabled = obj["enabled"]?.jsonPrimitive?.booleanOrNull ?: true,
+                maxRangeMm = obj["maxRangeMm"]?.jsonPrimitive?.intOrNull ?: 8000
+            )
         }
     }
 

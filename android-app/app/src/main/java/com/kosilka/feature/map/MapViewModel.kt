@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kosilka.core.UiEvent
 import com.kosilka.core.UiEventBus
+import com.kosilka.data.device.MowerDevice
 import com.kosilka.domain.model.CoverageSegment
 import com.kosilka.domain.model.Point2dMm
 import com.kosilka.domain.model.Zone
@@ -47,7 +48,8 @@ class MapViewModel @Inject constructor(
     private val loadSessionCoverageUseCase: LoadSessionCoverageUseCase,
     private val uiEventBus: UiEventBus,
     private val loadAnchorsUseCase: LoadAnchorsUseCase,
-    private val mapSettingsStore: MapSettingsStore
+    private val mapSettingsStore: MapSettingsStore,
+    private val mowerDevice: MowerDevice
 ) : ViewModel() {
 
     private var activeSessionId: String? = null
@@ -103,7 +105,8 @@ class MapViewModel @Inject constructor(
                     current.copy(
                         mowerPosition = rangingState.latestPosition ?: current.mowerPosition,
                         isPositionLost = rangingState.isPositionLost,
-                        isRangingActive = rangingState.isRangingActive
+                        isRangingActive = rangingState.isRangingActive,
+                        visibleTagCount = rangingState.visibleTagCount
                     )
                 }
             }
@@ -121,6 +124,7 @@ class MapViewModel @Inject constructor(
                         _uiState.update { it.copy(isConnected = true, statusMessage = null) }
                         refreshCurrentMowerPosition()
                         startPositionPollingIfNeeded()
+                        refreshUwbTags()
                     }
 
                     ConnectionState.Connecting -> {
@@ -210,6 +214,21 @@ class MapViewModel @Inject constructor(
                     _uiState.update { it.copy(statusMessage = event.message) }
                 }
             }
+        }
+    }
+
+    private fun refreshUwbTags() {
+        viewModelScope.launch {
+            mowerDevice.getUwbTags().getOrNull()?.let { tags ->
+                _uiState.update { it.copy(uwbTags = tags) }
+            }
+        }
+    }
+
+    fun toggleUwbTag(tagId: String) {
+        viewModelScope.launch {
+            mowerDevice.toggleUwbTag(tagId)
+            refreshUwbTags()
         }
     }
 

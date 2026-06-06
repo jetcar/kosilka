@@ -46,9 +46,13 @@ class TrackCoverageUseCase @Inject constructor(
         incomingJob?.cancel()
         persistenceJob?.cancel()
 
+        // Synchronous overlay reset — eliminates a race where a previous
+        // session's segments lingered briefly because the reset was launched
+        // on the IO dispatcher and could lose to a concurrent state update
+        // under heavy load.
+        _state.value = CoverageState(sessionId = sessionId, segments = emptyList(), coveragePercent = 0f)
+
         scope.launch {
-            // Fresh overlay on new session.
-            _state.value = CoverageState(sessionId = sessionId, segments = emptyList(), coveragePercent = 0f)
             coverageDao.deleteSegmentsForSession(sessionId)
         }
 

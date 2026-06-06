@@ -8,6 +8,9 @@ import com.kosilka.data.device.protocol.Envelope
 import com.kosilka.data.device.protocol.IncomingMessage
 import com.kosilka.data.device.protocol.ProtocolConstants
 import com.kosilka.domain.model.Point2dMm
+import com.kosilka.testing.EmulatorContainerSupport
+import com.kosilka.testing.RestEmulatorMowerDevice
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -43,78 +46,153 @@ class NavigationRangingRegressionTest {
     }
 
     @Test
-    fun `start ranging activates state and computes position from valid samples`() = runBlocking {
-        val fakeDevice = FakeNavigationMowerDevice()
-        val useCase = StartRangingUseCase(
-            mowerDevice = fakeDevice,
+    fun `emulator emits ranging samples from placed uwb tags and position is computed`() = runBlocking {
+        // Place 3 UWB tags and put the mower at a known position — the emulator must emit
+        // RANGING_SAMPLE for each enabled tag; StartRangingUseCase must compute position via trilateration.
+        val mowerPosition = Point2dMm(2500, 2000)
+        val baseUrl = EmulatorContainerSupport.prepareTestMap(
+            mowerPosition = mowerPosition,
+            availableZones = listOf(EmulatorContainerSupport.availableZone()),
+            noGoZones = emptyList()
+        )
+        EmulatorContainerSupport.addUwbTags(
+            baseUrl = baseUrl,
+            tags = listOf(
+                Triple("Tag 1", Point2dMm(0, 0), 10000),
+                Triple("Tag 2", Point2dMm(5000, 0), 10000),
+                Triple("Tag 3", Point2dMm(2500, 4000), 10000)
+            )
+        )
+
+        val device = RestEmulatorMowerDevice(baseUrl = baseUrl)
+        device.connect()
+        delay(200L)
+
+        val sessionId = device.sessionId()
+        val rangingUseCase = StartRangingUseCase(
+            mowerDevice = device,
             messageIdGenerator = MessageIdGenerator(),
             dispatchers = CoroutineDispatchers(),
             trilaterationSolver = TrilaterationSolver()
         )
 
-        val anchors = mapOf(
-            "a1" to Point2dMm(0, 0),
-            "a2" to Point2dMm(5000, 0),
-            "a3" to Point2dMm(2500, 4000)
-        )
-
-        val startResult = useCase.start(
-            sessionId = "session-2",
+        // Pass 3 dummy anchors so the ≥3 check passes; real positions arrive via ANCHOR_CONFIG
+        val startResult = rangingUseCase.start(
+            sessionId = sessionId,
             sampleRateHz = 5,
-            anchorsById = anchors
+            anchorsById = mapOf(
+                "placeholder-1" to Point2dMm(0, 0),
+                "placeholder-2" to Point2dMm(5000, 0),
+                "placeholder-3" to Point2dMm(2500, 4000)
+            )
         )
-
         assertTrue(startResult.isSuccess)
-        assertTrue(useCase.state.value.isRangingActive)
+        assertTrue(rangingUseCase.state.value.isRangingActive)
 
-        // Distances are generated for target position (2500, 2000).
-        fakeDevice.emitIncoming(
-            IncomingMessage.RangingSample(
-                messageId = 11,
-                sessionId = "session-2",
-                timestampMs = System.currentTimeMillis(),
-                distanceMm = 3202,
-                quality = 0.95f,
-                rssiDbm = -60,
-                sequence = 1,
-                anchorId = "a1"
-            )
+        // Wait for ANCHOR_CONFIG + a few ranging ticks (5 Hz → samples every 200 ms)
+        delay(1500L)
+
+        val latest = rangingUseCase.state.value.latestPosition
+        assertNotNull("Expected a computed position but got null", latest)
+        // Trilateration should resolve close to (2500, 2000) — allow ±300 mm noise
+        assertTrue(
+            "xMm=${latest!!.xMm} not near 2500",
+            latest.xMm in (mowerPosition.xMm - 300)..(mowerPosition.xMm + 300)
         )
-        fakeDevice.emitIncoming(
-            IncomingMessage.RangingSample(
-                messageId = 12,
-                sessionId = "session-2",
-                timestampMs = System.currentTimeMillis(),
-                distanceMm = 3202,
-                quality = 0.95f,
-                rssiDbm = -60,
-                sequence = 2,
-                anchorId = "a2"
-            )
-        )
-        fakeDevice.emitIncoming(
-            IncomingMessage.RangingSample(
-                messageId = 13,
-                sessionId = "session-2",
-                timestampMs = System.currentTimeMillis(),
-                distanceMm = 2000,
-                quality = 0.95f,
-                rssiDbm = -60,
-                sequence = 3,
-                anchorId = "a3"
-            )
+        assertTrue(
+            "yMm=${latest.yMm} not near 2000",
+            latest.yMm in (mowerPosition.yMm - 300)..(mowerPosition.yMm + 300)
         )
 
-        // Allow collector coroutine to process messages.
-        kotlinx.coroutines.delay(120)
+        rangingUseCase.stop()
+        device.disconnect()
+    }
 
-        val latest = useCase.state.value.latestPosition
-        assertNotNull(latest)
-        assertTrue(latest!!.xMm in 2450..2550)
-        assertTrue(latest.yMm in 1950..2050)
+    @Test
+    fun `mover moves to target when three uwb tags are present`() = runBlocking {
+        val startPosition = Point2dMm(1500, 1500)
+        val target = Point2dMm(3000, 2000)
+        val baseUrl = EmulatorContainerSupport.prepareTestMap(
+            mowerPosition = startPosition,
+            availableZones = listOf(EmulatorContainerSupport.availableZone()),
+            noGoZones = emptyList(),
+            speedMmPerSec = 1500,
+            rotationSpeedDegPerSec = 720
+        )
+        EmulatorContainerSupport.addUwbTags(
+            baseUrl = baseUrl,
+            tags = listOf(
+                Triple("Tag 1", Point2dMm(0, 0), 10000),
+                Triple("Tag 2", Point2dMm(7000, 0), 10000),
+                Triple("Tag 3", Point2dMm(3500, 5000), 10000)
+            )
+        )
 
-        useCase.stop()
-        assertTrue(!useCase.state.value.isRangingActive)
+        val device = RestEmulatorMowerDevice(baseUrl = baseUrl)
+        device.connect()
+        delay(300L)
+
+        val sessionId = device.sessionId()
+        val moveUseCase = MoveMowerUseCase(
+            mowerDevice = device,
+            messageIdGenerator = MessageIdGenerator(),
+            dispatchers = CoroutineDispatchers()
+        )
+
+        val result = moveUseCase.moveTo(sessionId = sessionId, target = target, zone = null)
+        assertTrue("Expected Success but got $result", result is MoveMowerResult.Success)
+
+        // Wait for emulator to actually move the mower
+        val toleranceMm = 150
+        val settled = kotlinx.coroutines.withTimeoutOrNull(5_000L) {
+            while (true) {
+                val pos = device.readCurrentPosition().getOrThrow()
+                if (pos.xMm in (target.xMm - toleranceMm)..(target.xMm + toleranceMm) &&
+                    pos.yMm in (target.yMm - toleranceMm)..(target.yMm + toleranceMm)) {
+                    return@withTimeoutOrNull pos
+                }
+                delay(100L)
+            }
+            null
+        }
+        assertNotNull("Mower did not reach target within 5s", settled)
+
+        device.disconnect()
+    }
+
+    @Test
+    fun `mower does not move without uwb tags`() = runBlocking {
+        val baseUrl = EmulatorContainerSupport.prepareTestMap(
+            mowerPosition = Point2dMm(1500, 1500),
+            availableZones = listOf(EmulatorContainerSupport.availableZone()),
+            noGoZones = emptyList()
+        )
+        // prepareTestMap clears all uwbTags — mower should refuse to move
+        val device = RestEmulatorMowerDevice(baseUrl = baseUrl)
+        val moveUseCase = MoveMowerUseCase(
+            mowerDevice = device,
+            messageIdGenerator = MessageIdGenerator(),
+            dispatchers = CoroutineDispatchers()
+        )
+        device.connect()
+        delay(200L)
+
+        val sessionId = "uwb-gating-test"
+        val target = Point2dMm(3000, 2000)
+        val result = moveUseCase.moveTo(sessionId = sessionId, target = target, zone = null)
+
+        // MOVE_TO is accepted at transport level (no ERR_BUSY), but emulator blocks movement
+        assertTrue(result is MoveMowerResult.Success)
+
+        // Position must not have changed — mower blocked by insufficient UWB tags
+        delay(300L)
+        val position = device.readCurrentPosition().getOrThrow()
+        assertTrue(
+            "Expected mower to stay near (1500,1500) but was (${position.xMm},${position.yMm})",
+            position.xMm in 1200..1800 && position.yMm in 1200..1800
+        )
+
+        device.disconnect()
     }
 
     @Test

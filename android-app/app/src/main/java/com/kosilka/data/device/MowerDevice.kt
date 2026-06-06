@@ -3,6 +3,7 @@ package com.kosilka.data.device
 import com.kosilka.data.device.protocol.Envelope
 import com.kosilka.data.device.protocol.IncomingMessage
 import com.kosilka.domain.model.Point2dMm
+import com.kosilka.domain.model.UwbTag
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -41,4 +42,8 @@ interface MowerDevice {
      * Some transports (like USB firmware-only mode) may not support this operation.
      */
     suspend fun readCurrentPosition(): Result<Point2dMm>
+
+    suspend fun getUwbTags(): Result<List<UwbTag>> = Result.failure(UnsupportedOperationException("Not supported by this transport"))
+
+    suspend fun toggleUwbTag(tagId: String): Result<Unit> = Result.failure(UnsupportedOperationException("Not supported by this transport"))
 }

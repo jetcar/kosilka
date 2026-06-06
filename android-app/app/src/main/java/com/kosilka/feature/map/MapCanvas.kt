@@ -28,6 +28,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import com.kosilka.domain.model.CoverageSegment
 import com.kosilka.domain.model.Point2dMm
+import com.kosilka.domain.model.UwbTag
 import com.kosilka.domain.model.Zone
 
 @Composable
@@ -35,7 +36,8 @@ fun MapCanvas(
     state: MapUiState,
     modifier: Modifier = Modifier,
     tapEnabled: Boolean = true,
-    onTapMap: (Point2dMm) -> Unit = {}
+    onTapMap: (Point2dMm) -> Unit = {},
+    onTapUwbTag: (UwbTag) -> Unit = {}
 ) {
     var zoom by remember { mutableFloatStateOf(1f) }
     var pan by remember { mutableStateOf(Offset.Zero) }
@@ -53,6 +55,14 @@ fun MapCanvas(
                         zoom = (zoom * zoomChange).coerceIn(0.5f, 4f)
                         pan += panChange
                     }
+                }
+                .pointerInput(state.uwbTags, zoom, pan) {
+                    detectTapOnUwbTag(
+                        uwbTags = state.uwbTags,
+                        panOffsetPx = pan,
+                        zoom = zoom,
+                        onTapUwbTag = onTapUwbTag
+                    )
                 }
                 .pointerInput(state.destinationMarker, zoom, pan) {
                     detectTapToMove(
@@ -193,6 +203,19 @@ fun MapCanvas(
             mowerOffset?.let { offset ->
                 drawCircle(color = Color(0xFFD32F2F), radius = 14f, center = offset)
             }
+
+            // UWB tag markers
+            state.uwbTags.forEach { tag ->
+                val tagOffset = MapCoordinateConverter.mapMmToScreen(
+                    mapPoint = Point2dMm(tag.xMm, tag.yMm),
+                    panOffsetPx = pan,
+                    zoom = zoom,
+                    pixelsPerMeterAtZoom1 = pxPerMeterAtZoom1
+                )
+                val tagColor = if (tag.enabled) Color(0xFF6200EE) else Color(0xFFBDBDBD)
+                drawCircle(color = tagColor, radius = 10f, center = tagOffset)
+                drawCircle(color = tagColor, radius = 10f, center = tagOffset, style = Stroke(width = 2f))
+            }
         }
 
         Row(
@@ -258,6 +281,40 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawZoneLayer(
 
         drawPath(color = fillColor, path = path)
         drawPath(color = strokeColor, path = path)
+    }
+}
+
+private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.detectTapOnUwbTag(
+    uwbTags: List<UwbTag>,
+    panOffsetPx: Offset,
+    zoom: Float,
+    onTapUwbTag: (UwbTag) -> Unit
+) {
+    awaitPointerEventScope {
+        while (true) {
+            val downEvent = awaitPointerEvent(PointerEventPass.Main)
+            val downChange = downEvent.changes.firstOrNull { it.pressed } ?: continue
+            val pointerId = downChange.id
+            var releasePosition: Offset? = null
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Main)
+                val trackedChange = event.changes.firstOrNull { it.id == pointerId } ?: break
+                if (!trackedChange.pressed) { releasePosition = trackedChange.position; break }
+            }
+            if (releasePosition == null) continue
+            val tappedMap = MapCoordinateConverter.screenToMapMm(
+                screenPoint = releasePosition,
+                panOffsetPx = panOffsetPx,
+                zoom = zoom,
+                pixelsPerMeterAtZoom1 = 120f
+            )
+            val tapRadiusMm = (30f / zoom).toInt()
+            uwbTags.firstOrNull { tag ->
+                val dx = tag.xMm - tappedMap.xMm
+                val dy = tag.yMm - tappedMap.yMm
+                kotlin.math.sqrt((dx * dx + dy * dy).toDouble()) <= tapRadiusMm
+            }?.let(onTapUwbTag)
+        }
     }
 }
 

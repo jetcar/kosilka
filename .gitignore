@@ -3,3 +3,7 @@ android-app/.idea/
 android-app/app/build/
 android-app/.gradle/
 emulator-service/emulator-state.json
+.vscode/
+android-app/build-last.log
+android-app/.gradle/
+android-app/build-last-utf8.log

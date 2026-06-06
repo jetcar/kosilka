@@ -11,6 +11,7 @@ import com.kosilka.data.local.entity.CoverageSegmentEntity
 import com.kosilka.domain.model.Point2dMm
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -34,11 +35,11 @@ class TrackCoverageUseCaseIntegrationTest {
 
         useCase.startSession("s1", zone = null)
         device.emitCoverage("s1", 0, 0, 100, 100)
-        delay(200L)
+        withTimeout(10_000L) { while (useCase.state.value.segments.isEmpty()) delay(50L) }
         assertTrue(useCase.state.value.segments.isNotEmpty())
 
         useCase.startSession("s2", zone = null)
-        delay(200L)
+        withTimeout(10_000L) { while (useCase.state.value.segments.isNotEmpty()) delay(50L) }
 
         assertEquals("s2", useCase.state.value.sessionId)
         assertTrue(useCase.state.value.segments.isEmpty())

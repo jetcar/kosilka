@@ -110,6 +110,23 @@ class ProtocolDecoder @Inject constructor() {
                 segments = segments
             )
         }
+        ProtocolConstants.TYPE_ANCHOR_CONFIG -> {
+            val anchors = payload["anchors"]?.jsonArray?.map { element ->
+                val a = element.jsonObject
+                AnchorInfo(
+                    id = a["id"]?.jsonPrimitive?.content ?: "",
+                    xMm = a["xMm"]?.jsonPrimitive?.int ?: 0,
+                    yMm = a["yMm"]?.jsonPrimitive?.int ?: 0,
+                    label = a["label"]?.jsonPrimitive?.content ?: ""
+                )
+            } ?: emptyList()
+            IncomingMessage.AnchorConfig(
+                messageId = messageId,
+                sessionId = sessionId,
+                timestampMs = timestampMs,
+                anchors = anchors
+            )
+        }
         ProtocolConstants.TYPE_ERROR -> {
             val code = payload["code"]?.jsonPrimitive?.int ?: ProtocolConstants.ERR_INTERNAL
             val name = payload["name"]?.jsonPrimitive?.content ?: "ERR_INTERNAL"

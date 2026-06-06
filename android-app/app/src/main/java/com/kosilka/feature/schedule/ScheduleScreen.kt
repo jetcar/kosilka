@@ -26,7 +26,25 @@ fun ScheduleScreen(
     viewModel: ScheduleViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    ScheduleScreenContent(
+        uiState = uiState,
+        modifier = modifier,
+        onUpdateStartTime = viewModel::updateStartTime,
+        onToggleDay = viewModel::toggleDay,
+        onCreateSchedule = viewModel::createSchedule,
+        onDeleteSchedule = viewModel::deleteSchedule
+    )
+}
 
+@Composable
+internal fun ScheduleScreenContent(
+    uiState: ScheduleUiState,
+    modifier: Modifier = Modifier,
+    onUpdateStartTime: (String) -> Unit = {},
+    onToggleDay: (Int) -> Unit = {},
+    onCreateSchedule: () -> Unit = {},
+    onDeleteSchedule: (String) -> Unit = {}
+) {
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -40,20 +58,20 @@ fun ScheduleScreen(
         OutlinedTextField(
             modifier = Modifier.fillMaxWidth(),
             value = uiState.startTimeInput,
-            onValueChange = viewModel::updateStartTime,
+            onValueChange = onUpdateStartTime,
             label = { Text("Start time (HH:MM)") }
         )
 
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             (0..6).forEach { day ->
                 val selected = day in uiState.selectedDays
-                Button(onClick = { viewModel.toggleDay(day) }) {
+                Button(onClick = { onToggleDay(day) }) {
                     Text(if (selected) "[$day]" else "$day")
                 }
             }
         }
 
-        Button(onClick = viewModel::createSchedule, enabled = !uiState.isSaving) {
+        Button(onClick = onCreateSchedule, enabled = !uiState.isSaving) {
             Text("Create Schedule")
         }
 
@@ -64,7 +82,7 @@ fun ScheduleScreen(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text("${schedule.startTimeUtcHhmm} | ${schedule.daysOfWeek}")
-                    Button(onClick = { viewModel.deleteSchedule(schedule.scheduleId) }) {
+                    Button(onClick = { onDeleteSchedule(schedule.scheduleId) }) {
                         Text("Delete")
                     }
                 }

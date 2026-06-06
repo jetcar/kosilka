@@ -4,6 +4,7 @@ import com.kosilka.domain.model.Anchor
 import com.kosilka.domain.model.CoverageSegment
 import com.kosilka.domain.model.MowerPosition
 import com.kosilka.domain.model.Point2dMm
+import com.kosilka.domain.model.UwbTag
 import com.kosilka.domain.model.Zone
 
 data class MapUiState(
@@ -25,5 +26,7 @@ data class MapUiState(
     val isPositionLost: Boolean = false,
     val isConnected: Boolean = false,
     val isRangingActive: Boolean = false,
-    val statusMessage: String? = null
+    val statusMessage: String? = null,
+    val uwbTags: List<UwbTag> = emptyList(),
+    val visibleTagCount: Int = 0
 )

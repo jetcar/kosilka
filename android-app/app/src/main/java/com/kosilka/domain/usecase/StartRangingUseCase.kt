@@ -3,6 +3,7 @@ package com.kosilka.domain.usecase
 import com.kosilka.core.CoroutineDispatchers
 import com.kosilka.core.MessageIdGenerator
 import com.kosilka.data.device.MowerDevice
+import com.kosilka.data.device.protocol.AnchorInfo
 import com.kosilka.data.device.protocol.Envelope
 import com.kosilka.data.device.protocol.IncomingMessage
 import com.kosilka.data.device.protocol.ProtocolConstants
@@ -37,7 +38,7 @@ class StartRangingUseCase @Inject constructor(
 
     private var activeSessionId: String = ""
     private var anchorPositionsById: Map<String, Point2dMm> = emptyMap()
-    private val latestDistancesByAnchorId = mutableMapOf<String, Int>()
+    private val latestDistancesByAnchorId = mutableMapOf<String, DistanceEntry>()
 
     @Volatile
     private var lastSampleAtMs: Long = 0L
@@ -50,7 +51,6 @@ class StartRangingUseCase @Inject constructor(
         activeSessionId = sessionId
         anchorPositionsById = anchorsById
         latestDistancesByAnchorId.clear()
-        // Reset timeout baseline so a previous run does not immediately trigger position-lost.
         lastSampleAtMs = 0L
         _state.value = RangingState(isRangingActive = true, isPositionLost = false, latestPosition = null)
 
@@ -94,39 +94,63 @@ class StartRangingUseCase @Inject constructor(
         _state.value = _state.value.copy(isRangingActive = false)
     }
 
+    fun updateAnchorPositions(anchors: List<AnchorInfo>) {
+        anchorPositionsById = anchors.associate { it.id to Point2dMm(it.xMm, it.yMm) }
+    }
+
+    private fun updateVisibleTagCount() {
+        val now = System.currentTimeMillis()
+        val visibleCount = latestDistancesByAnchorId.count { (_, entry) ->
+            entry.quality >= 0.5f && (now - entry.timestampMs) < 3_000L
+        }
+        _state.value = _state.value.copy(visibleTagCount = visibleCount)
+    }
+
     private fun startIncomingCollector() {
         incomingJob?.cancel()
         incomingJob = scope.launch {
             mowerDevice.incomingMessages.collect { message ->
-                if (message !is IncomingMessage.RangingSample) {
-                    return@collect
-                }
-                if (message.quality < 0.5f) {
-                    return@collect
-                }
-
-                lastSampleAtMs = System.currentTimeMillis()
-                latestDistancesByAnchorId[message.anchorId] = message.distanceMm
-
-                val resolvedDistances = latestDistancesByAnchorId.entries
-                    .mapNotNull { (anchorId, distance) ->
-                        val point = anchorPositionsById[anchorId] ?: return@mapNotNull null
-                        point to distance
+                when (message) {
+                    is IncomingMessage.AnchorConfig -> {
+                        updateAnchorPositions(message.anchors)
+                        return@collect
                     }
-                    .toMap()
+                    is IncomingMessage.RangingSample -> {
+                        if (message.quality < 0.5f) {
+                            updateVisibleTagCount()
+                            return@collect
+                        }
 
-                if (resolvedDistances.size < 3) {
-                    return@collect
-                }
-
-                trilaterationSolver.solve(resolvedDistances)
-                    .onSuccess { mowerPosition ->
-                        _state.value = _state.value.copy(
-                            latestPosition = mowerPosition,
-                            isPositionLost = false,
-                            isRangingActive = true
+                        lastSampleAtMs = System.currentTimeMillis()
+                        latestDistancesByAnchorId[message.anchorId] = DistanceEntry(
+                            distanceMm = message.distanceMm,
+                            quality = message.quality,
+                            timestampMs = lastSampleAtMs
                         )
+                        updateVisibleTagCount()
+
+                        val resolvedDistances = latestDistancesByAnchorId.entries
+                            .mapNotNull { (anchorId, entry) ->
+                                val point = anchorPositionsById[anchorId] ?: return@mapNotNull null
+                                point to entry.distanceMm
+                            }
+                            .toMap()
+
+                        if (resolvedDistances.size < 3) {
+                            return@collect
+                        }
+
+                        trilaterationSolver.solve(resolvedDistances)
+                            .onSuccess { mowerPosition ->
+                                _state.value = _state.value.copy(
+                                    latestPosition = mowerPosition,
+                                    isPositionLost = false,
+                                    isRangingActive = true
+                                )
+                            }
                     }
+                    else -> return@collect
+                }
             }
         }
     }
@@ -147,5 +171,12 @@ class StartRangingUseCase @Inject constructor(
 data class RangingState(
     val isRangingActive: Boolean = false,
     val isPositionLost: Boolean = false,
-    val latestPosition: MowerPosition? = null
+    val latestPosition: MowerPosition? = null,
+    val visibleTagCount: Int = 0
+)
+
+data class DistanceEntry(
+    val distanceMm: Int,
+    val quality: Float,
+    val timestampMs: Long
 )

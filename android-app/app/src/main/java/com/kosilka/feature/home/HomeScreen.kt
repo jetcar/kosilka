@@ -27,7 +27,29 @@ fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    HomeScreenContent(
+        uiState = uiState,
+        modifier = modifier,
+        onOpenDebug = onOpenDebug,
+        onOpenMap = onOpenMap,
+        onOpenZone = onOpenZone,
+        onOpenSchedule = onOpenSchedule,
+        onOpenHistory = onOpenHistory,
+        onDisconnect = viewModel::disconnect
+    )
+}
 
+@Composable
+internal fun HomeScreenContent(
+    uiState: HomeUiState,
+    modifier: Modifier = Modifier,
+    onOpenDebug: () -> Unit = {},
+    onOpenMap: () -> Unit = {},
+    onOpenZone: () -> Unit = {},
+    onOpenSchedule: () -> Unit = {},
+    onOpenHistory: () -> Unit = {},
+    onDisconnect: () -> Unit = {}
+) {
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -65,7 +87,7 @@ fun HomeScreen(
         ) {
             Button(
                 enabled = uiState.canDisconnect,
-                onClick = viewModel::disconnect
+                onClick = onDisconnect
             ) {
                 Text("Disconnect")
             }

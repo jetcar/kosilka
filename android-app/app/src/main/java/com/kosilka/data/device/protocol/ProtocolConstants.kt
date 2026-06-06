@@ -12,6 +12,7 @@ object ProtocolConstants {
     const val TYPE_RANGING_START = "RANGING_START"
     const val TYPE_RANGING_STOP = "RANGING_STOP"
     const val TYPE_RANGING_SAMPLE = "RANGING_SAMPLE"
+    const val TYPE_ANCHOR_CONFIG = "ANCHOR_CONFIG"
     const val TYPE_HEARTBEAT = "HEARTBEAT"
     const val TYPE_ERROR = "ERROR"
     const val TYPE_MOVE_TO = "MOVE_TO"

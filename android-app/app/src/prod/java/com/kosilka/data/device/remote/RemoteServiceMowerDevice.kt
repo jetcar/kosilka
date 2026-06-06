@@ -8,6 +8,7 @@ import com.kosilka.data.device.protocol.IncomingMessage
 import com.kosilka.data.device.protocol.ProtocolDecoder
 import com.kosilka.data.device.protocol.ProtocolEncoder
 import com.kosilka.domain.model.Point2dMm
+import com.kosilka.domain.model.UwbTag
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
@@ -103,6 +104,10 @@ class RemoteServiceMowerDevice @Inject constructor(
         }
         return apiClient.readCurrentPosition()
     }
+
+    override suspend fun getUwbTags(): Result<List<UwbTag>> = apiClient.getUwbTags()
+
+    override suspend fun toggleUwbTag(tagId: String): Result<Unit> = apiClient.toggleUwbTag(tagId)
 
     private fun startPollingLoop() {
         stopPollingLoop()

@@ -26,7 +26,19 @@ fun HistoryScreen(
     viewModel: HistoryViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    HistoryScreenContent(
+        uiState = uiState,
+        modifier = modifier,
+        onSelectRecord = viewModel::selectRecord
+    )
+}
 
+@Composable
+internal fun HistoryScreenContent(
+    uiState: HistoryUiState,
+    modifier: Modifier = Modifier,
+    onSelectRecord: (com.kosilka.domain.model.SessionRecord) -> Unit = {}
+) {
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -41,7 +53,7 @@ fun HistoryScreen(
                     text = "${record.startTimestampUtcMs} | ${record.durationSeconds}s | ${"%.1f".format(record.coveragePercent)}%",
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { viewModel.selectRecord(record) }
+                        .clickable { onSelectRecord(record) }
                 )
             }
         }

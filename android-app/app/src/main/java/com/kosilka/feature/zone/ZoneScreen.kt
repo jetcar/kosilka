@@ -48,7 +48,43 @@ fun ZoneScreen(
     viewModel: ZoneViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    var isEditMode by remember { mutableStateOf(false) }
+    ZoneScreenContent(
+        uiState = uiState,
+        modifier = modifier,
+        onMoveCorner = viewModel::moveCorner,
+        onMoveZone = viewModel::moveSelectedZoneBy,
+        onSelectZone = viewModel::selectZone,
+        onNavigationTap = viewModel::onMapTapped,
+        onNavigationTapAndHold = viewModel::onMapTapAndHold,
+        onAddAvailableZone = viewModel::addAvailableZone,
+        onAddNoGoZone = viewModel::addNoGoZone,
+        onDeleteSelectedZone = viewModel::deleteSelectedZone,
+        onSetNavigationMode = viewModel::setNavigationMode,
+        onStopMower = viewModel::stopMower,
+        onResetAllZones = viewModel::resetAllZones,
+        onConfirmZone = viewModel::confirmZone
+    )
+}
+
+@Composable
+internal fun ZoneScreenContent(
+    uiState: ZoneUiState,
+    modifier: Modifier = Modifier,
+    initialEditMode: Boolean = false,
+    onMoveCorner: (Int, Point2dMm) -> Unit = { _, _ -> },
+    onMoveZone: (Int, Int) -> Unit = { _, _ -> },
+    onSelectZone: (ZoneAreaType, Int) -> Unit = { _, _ -> },
+    onNavigationTap: (Point2dMm) -> Unit = {},
+    onNavigationTapAndHold: (Point2dMm) -> Unit = {},
+    onAddAvailableZone: () -> Unit = {},
+    onAddNoGoZone: () -> Unit = {},
+    onDeleteSelectedZone: () -> Unit = {},
+    onSetNavigationMode: (Boolean) -> Unit = {},
+    onStopMower: () -> Unit = {},
+    onResetAllZones: () -> Unit = {},
+    onConfirmZone: () -> Unit = {}
+) {
+    var isEditMode by remember { mutableStateOf(initialEditMode) }
 
     val selectedZones = if (uiState.selectedAreaType == ZoneAreaType.AVAILABLE) {
         uiState.availableZones
@@ -99,11 +135,11 @@ fun ZoneScreen(
                 .aspectRatio(4f / 3f)
                 .background(Color(0xFFF4F7F5))
                 .border(1.dp, Color(0xFFCFD8DC)),
-            onMoveCorner = viewModel::moveCorner,
-            onMoveZone = viewModel::moveSelectedZoneBy,
-            onSelectZone = viewModel::selectZone,
-            onNavigationTap = viewModel::onMapTapped,
-            onNavigationTapAndHold = viewModel::onMapTapAndHold
+            onMoveCorner = onMoveCorner,
+            onMoveZone = onMoveZone,
+            onSelectZone = onSelectZone,
+            onNavigationTap = onNavigationTap,
+            onNavigationTapAndHold = onNavigationTapAndHold
         )
 
         if (isEditMode) {
@@ -113,17 +149,17 @@ fun ZoneScreen(
                 ) {
                     FilledTonalButton(
                         enabled = !uiState.isNavigationMode,
-                        onClick = viewModel::addAvailableZone
+                        onClick = onAddAvailableZone
                     ) { Text("Add Available Zone") }
                     FilledTonalButton(
                         enabled = !uiState.isNavigationMode,
-                        onClick = viewModel::addNoGoZone
+                        onClick = onAddNoGoZone
                     ) { Text("Add No-Go Zone") }
                 }
                 Row {
                     FilledTonalButton(
                         enabled = !uiState.isNavigationMode,
-                        onClick = viewModel::deleteSelectedZone
+                        onClick = onDeleteSelectedZone
                     ) { Text("Delete Selected") }
                 }
             }
@@ -134,9 +170,7 @@ fun ZoneScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             FilledTonalButton(
-                onClick = {
-                    viewModel.setNavigationMode(!uiState.isNavigationMode)
-                }
+                onClick = { onSetNavigationMode(!uiState.isNavigationMode) }
             ) {
                 Text(if (uiState.isNavigationMode) "Stop Navigation" else "Start Navigation")
             }
@@ -146,7 +180,7 @@ fun ZoneScreen(
             ) {
                 Text(if (isEditMode) "Edit Zone: ON" else "Edit Zone: OFF")
             }
-            Button(onClick = viewModel::stopMower) {
+            Button(onClick = onStopMower) {
                 Text("Stop Mower")
             }
         }
@@ -155,8 +189,8 @@ fun ZoneScreen(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Button(onClick = viewModel::resetAllZones) { Text("Reset") }
-            Button(onClick = viewModel::confirmZone, enabled = !uiState.isSaving) { Text("Save") }
+            Button(onClick = onResetAllZones) { Text("Reset") }
+            Button(onClick = onConfirmZone, enabled = !uiState.isSaving) { Text("Save") }
         }
 
         Text("${uiState.selectedAreaType}: zone ${selectedZoneIndex + 1} / ${selectedZones.size}")

@@ -59,6 +59,13 @@ sealed class IncomingMessage {
         val failedMessageId: Long
     ) : IncomingMessage()
 
+    data class AnchorConfig(
+        override val messageId: Long,
+        override val sessionId: String,
+        override val timestampMs: Long,
+        val anchors: List<AnchorInfo>
+    ) : IncomingMessage()
+
     data class Unknown(
         override val messageId: Long,
         override val sessionId: String,
@@ -66,6 +73,13 @@ sealed class IncomingMessage {
         val rawMessageType: String
     ) : IncomingMessage()
 }
+
+data class AnchorInfo(
+    val id: String,
+    val xMm: Int,
+    val yMm: Int,
+    val label: String
+)
 
 data class CoverageSegmentPayload(
     val fromXMm: Int,
